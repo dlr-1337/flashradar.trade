@@ -843,9 +843,14 @@ $appConfig = [
         }
 
         .price-line-modal {
-            max-width: 730px;
-            width: calc(100% - 24px);
-            padding: 16px 16px 14px;
+            --pl-cell-min-width: 14.25rem;
+            --pl-minute-width: 2.15rem;
+            --pl-uf-width: 3.95rem;
+            --pl-odd-width: 2.5rem;
+            --pl-tkm-width: 5.1rem;
+            max-width: 920px;
+            width: min(calc(100vw - 12px), 920px);
+            padding: 16px 12px 14px;
         }
 
         .pl-head {
@@ -1187,22 +1192,28 @@ $appConfig = [
             background: #111;
             border: 1px solid rgba(255, 255, 255, 0.10);
             border-radius: 12px;
-            overflow: hidden;
-            padding: 10px;
+            overflow-x: auto;
+            overflow-y: auto;
+            padding: 9px;
+            scrollbar-gutter: stable;
+            -webkit-overflow-scrolling: touch;
         }
 
         .pl-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(var(--pl-column-count, 3), minmax(var(--pl-cell-min-width), 1fr));
+            grid-auto-columns: minmax(var(--pl-cell-min-width), 1fr);
             grid-template-rows: repeat(12, auto);
             grid-auto-flow: column;
-            gap: 6px 10px;
+            gap: 6px 8px;
+            width: max-content;
+            min-width: 100%;
         }
 
         .pl-cell {
-            display: flex;
+            display: grid;
+            grid-template-columns: minmax(var(--pl-minute-width), max-content) minmax(calc(var(--pl-uf-width) + var(--pl-odd-width) + var(--pl-tkm-width) + 1rem), 1fr);
             align-items: center;
-            justify-content: space-between;
             gap: 8px;
             padding: 7px 8px;
             border-radius: 8px;
@@ -1210,45 +1221,54 @@ $appConfig = [
             border: 1px solid rgba(255, 255, 255, 0.06);
             font-family: 'Courier New', monospace;
             line-height: 1;
+            min-width: var(--pl-cell-min-width);
+            font-variant-numeric: tabular-nums;
         }
 
         .pl-cell .m {
             color: #d7d7d7;
             font-size: 0.82rem;
             white-space: nowrap;
+            min-width: var(--pl-minute-width);
         }
 
         .pl-cell .o {
-            display: flex;
+            display: grid;
+            grid-template-columns: minmax(var(--pl-uf-width), max-content) minmax(var(--pl-odd-width), max-content) minmax(var(--pl-tkm-width), max-content);
             align-items: center;
             justify-content: flex-end;
-            gap: 8px;
+            gap: 6px;
             white-space: nowrap;
             flex: 1 1 auto;
             min-width: 0;
+            justify-items: end;
         }
 
         .pl-cell .o .uf {
-            display: inline-flex;
+            display: grid;
+            grid-auto-flow: column;
             align-items: center;
-            gap: 6px;
+            gap: 5px;
             font-family: 'Courier New', monospace;
             font-weight: 900;
             zoom: 96%;
-            width: 70px;
+            min-width: var(--pl-uf-width);
+            width: auto;
             text-align: left;
-            justify-content: left;
+            justify-content: start;
         }
 
         .pl-cell .o .tkm {
-            display: inline-flex;
+            display: grid;
+            grid-auto-flow: column;
             align-items: center;
             justify-content: flex-end;
-            gap: 6px;
+            gap: 5px;
             font-family: 'Courier New', monospace;
             font-weight: 900;
             zoom: 96%;
-            width: 74px;
+            min-width: var(--pl-tkm-width);
+            width: auto;
             text-align: right;
             white-space: nowrap;
         }
@@ -1266,6 +1286,8 @@ $appConfig = [
         .pl-cell .o .uf-val {
             font-size: 0.86rem;
             color: #ffffffc4;
+            min-width: 2.2rem;
+            text-align: right;
         }
 
         .pl-cell .o .tkm-tag {
@@ -1281,7 +1303,7 @@ $appConfig = [
         .pl-cell .o .tkm-val {
             font-size: 0.84rem;
             color: #fff6d0;
-            min-width: 14px;
+            min-width: 2.5rem;
             text-align: right;
         }
 
@@ -1289,8 +1311,14 @@ $appConfig = [
             font-weight: 900;
             font-size: 0.90rem;
             white-space: nowrap;
-            width: 34px;
+            width: auto;
+            min-width: var(--pl-odd-width);
             text-align: right;
+        }
+
+        .pl-plus-row {
+            display: flex;
+            min-width: var(--pl-cell-min-width);
         }
 
         .pl-plus-row .m {
@@ -1300,9 +1328,12 @@ $appConfig = [
         }
 
         .pl-plus-row .o {
+            display: flex;
             flex-direction: row;
             align-items: center;
             gap: 4px;
+            justify-content: flex-end;
+            grid-template-columns: none;
         }
 
         .pl-plus-row input {
@@ -1383,8 +1414,12 @@ $appConfig = [
         }
 
         @media (max-width:560px) {
-            .pl-grid {
-                grid-template-columns: repeat(2, 1fr);
+            .price-line-modal {
+                width: calc(100vw - 8px);
+                padding: 12px 10px;
+            }
+            .pl-body {
+                padding: 8px;
             }
             .pl-switch.grid {
                 grid-template-columns: 1fr 1fr;
@@ -2258,48 +2293,31 @@ $appConfig = [
             return Number(val.toFixed(2));
         }
 
-        function getLadderStep(val, direction) {
-            const base = Number.isFinite(val) ? Number(val) : 1.01;
-            const probe = base + ((direction || 1) > 0 ? 0.000001 : -0.000001);
-            for (let i = 0; i < LADDER_RANGES.length; i++) {
-                const range = LADDER_RANGES[i];
-                if (probe <= range.upTo) return range.step;
-            }
-            return LADDER_RANGES[LADDER_RANGES.length - 1].step;
+        function getPriceLineTargetMinute(phase, plusMode, addMin) {
+            const p = (phase === 'HT') ? 'HT' : 'FT';
+            const baseEnd = (p === 'HT') ? 45 : 90;
+            if (!plusMode) return baseEnd;
+            const add = Math.max(0, Math.min(19, parseInt(addMin || 0, 10) || 0));
+            return baseEnd + add;
         }
 
-        function shiftLadderOdd(val, direction) {
-            if (!Number.isFinite(val)) return NaN;
-            const dir = direction >= 0 ? 1 : -1;
-            const normalized = getLadderTick(val);
-            const step = getLadderStep(normalized, dir);
-            return getLadderTick(normalized + (step * dir));
+        function calcTickPerMinValue(odd, minute, targetMinute) {
+            const currentOdd = Number(odd);
+            const currentMinute = Number(minute);
+            const endMinute = Number(targetMinute);
+            if (!Number.isFinite(currentOdd) || !Number.isFinite(currentMinute) || !Number.isFinite(endMinute)) return null;
+            const remainingMinutes = endMinute - currentMinute;
+            if (remainingMinutes <= 0) return null;
+            const oddDelta = currentOdd - 1;
+            if (oddDelta < 0) return null;
+            return oddDelta / remainingMinutes;
         }
 
-        function countLadderTicks(fromOdd, toOdd) {
-            if (!Number.isFinite(fromOdd) || !Number.isFinite(toOdd)) return null;
-            const start = getLadderTick(fromOdd);
-            const target = getLadderTick(toOdd);
-            if (Math.abs(start - target) < 0.0001) return 0;
-            const direction = target > start ? 1 : -1;
-            let current = start;
-            let ticks = 0;
-            while (ticks < 1000 && Math.abs(current - target) >= 0.0001) {
-                current = shiftLadderOdd(current, direction);
-                ticks++;
-            }
-            return Math.abs(current - target) < 0.0001 ? ticks : null;
-        }
-
-        function hydrateTickPerMin(line) {
+        function hydrateTickPerMin(line, targetMinute) {
             if (!Array.isArray(line)) return [];
             for (let i = 0; i < line.length; i++) {
-                if (i >= line.length - 1) {
-                    line[i].tickPerMin = null;
-                    continue;
-                }
-                const ticks = countLadderTicks(line[i].odd, line[i + 1].odd);
-                line[i].tickPerMin = Number.isFinite(ticks) ? Math.max(1, ticks) : null;
+                const row = line[i] || {};
+                line[i].tickPerMin = calcTickPerMinValue(row.odd, row.minute, targetMinute);
             }
             return line;
         }
@@ -2330,11 +2348,10 @@ $appConfig = [
                 const bucket = line.slice(i, i + groupStep);
                 const first = bucket[0];
                 const last = bucket[bucket.length - 1];
-                const hasFollowingMinute = (i + bucket.length) < line.length;
                 const tickValues = bucket
                     .map((row) => Number(row?.tickPerMin))
                     .filter((value) => Number.isFinite(value));
-                const tickPerMin = hasFollowingMinute && tickValues.length
+                const tickPerMin = tickValues.length
                     ? tickValues.reduce((total, value) => total + value, 0) / tickValues.length
                     : null;
                 grouped.push({
@@ -2382,6 +2399,7 @@ $appConfig = [
         function buildPriceLine(phase, baseOdd) {
             const out = [];
             if (!Number.isFinite(baseOdd) || baseOdd <= 1.0001) return out;
+            const targetMinute = getPriceLineTargetMinute(phase, false, 0);
             const halfStart = (phase === 'HT') ? 0 : 45;
             const limit = (phase === 'HT') ? 35 : 80;
             for (let m = halfStart; m <= limit; m++) {
@@ -2395,7 +2413,7 @@ $appConfig = [
                     tickPerMin: null
                 });
             }
-            return hydrateTickPerMin(out);
+            return hydrateTickPerMin(out, targetMinute);
         }
 
         function buildPriceLinePlus(phase, baseOdd, addMin) {
@@ -2407,7 +2425,7 @@ $appConfig = [
             const baseEnd = (p === 'HT') ? 45 : 90;
 
             const add = Math.max(0, Math.min(19, parseInt(addMin || 0, 10) || 0));
-            const end = baseEnd + add;
+            const end = getPriceLineTargetMinute(p, true, add);
 
             for (let m = baseStart; m <= end; m++) {
                 const delta = end - m;
@@ -2419,7 +2437,7 @@ $appConfig = [
                     tickPerMin: null
                 });
             }
-            return hydrateTickPerMin(out);
+            return hydrateTickPerMin(out, end);
         }
 
         function kindLabel(kind) {
@@ -2437,6 +2455,10 @@ $appConfig = [
 
         function fmt2(v) {
             return (v == null || !Number.isFinite(v)) ? '--' : Number(v).toFixed(2);
+        }
+
+        function formatTickPerMinDisplay(v) {
+            return (v == null || !Number.isFinite(v)) ? '—' : Number(v).toFixed(3).replace('.', ',');
         }
 
         function fmtTickPerMin(v) {
@@ -3327,6 +3349,7 @@ $appConfig = [
             titleEl.textContent = `${PL_CUSTOM_MODE ? 'Custom ' : ''}Linha de preço ${p}`;
             subEl.innerHTML = `${kLbl ? `<b>${kLbl}</b> • ` : ''}Linha: <b class="${clsOdd}">${Number(odd).toFixed(2)}</b> • Minutos ${isPlus ? `${plusStart}→${plusEnd}` : `${start}→${end}`}`;
 
+            const targetMinute = getPriceLineTargetMinute(p, isPlus, add);
             const line = isPlus ? buildPriceLinePlus(p, odd, add) : buildPriceLine(p, odd);
 
             const plusRow = document.getElementById('plPlusInline');
@@ -3341,14 +3364,14 @@ $appConfig = [
                 const main = Number(v).toFixed(2);
                 const uf = interpolateCorrelation(v);
                 const ufVal = Number.isFinite(uf) ? Number(uf).toFixed(2) : '—';
-                const tickVal = fmtTickPerMin(tickPerMin);
+                const tickVal = formatTickPerMinDisplay(tickPerMin);
                 return `
       <span class="uf" title="Under A Frente">
         <span class="uf-tag">UF</span>
         <span class="uf-val">${ufVal}</span>
       </span>
       <span class="main ${clsOdd}">${main}</span>
-      <span class="tkm" title="Ticks por minuto">
+      <span class="tkm" title="Odd por minuto restante = (odd atual - 1) / minutos restantes">
         <span class="tkm-tag">TK/M</span>
         <span class="tkm-val">${tickVal}</span>
       </span>
@@ -3388,10 +3411,12 @@ $appConfig = [
                 if (idx2 >= 0) line[idx2].odd = 2.00;
                 if (idx3 >= 0) line[idx3].odd = 3.00;
             }
-            hydrateTickPerMin(line);
+            hydrateTickPerMin(line, targetMinute);
             const hit2Minute = idx2 >= 0 ? Number(line[idx2]?.minute) : null;
             const hit3Minute = idx3 >= 0 ? Number(line[idx3]?.minute) : null;
             const displayLine = buildGroupedPriceLine(line, groupStep);
+            const columnCount = Math.max(1, Math.min(3, Math.ceil(displayLine.length / 12) || 1));
+            grid.style.setProperty('--pl-column-count', String(columnCount));
 
             let html = '';
             for (let i = 0; i < displayLine.length; i++) {
