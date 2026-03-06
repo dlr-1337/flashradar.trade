@@ -1013,6 +1013,58 @@ $appConfig = [
             border-left: 2px solid #4dc731;
         }
 
+        .pl-category-ms {
+            flex: 0 0 auto;
+            min-width: 220px;
+            max-width: 240px;
+            z-index: 30;
+        }
+
+        .pl-category-ms .ms-btn {
+            background: #0f0f0f;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            padding: 7px 11px;
+            gap: 8px;
+            min-height: 34px;
+        }
+
+        .pl-category-ms .ms-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.22);
+            color: #fff;
+        }
+
+        .pl-category-ms .ms-btn .ms-label {
+            font-size: 0.66rem;
+        }
+
+        .pl-category-ms .ms-btn .ms-summary {
+            font-size: 0.78rem;
+        }
+
+        .pl-category-ms .ms-panel {
+            left: auto;
+            right: 0;
+            width: 280px;
+            top: calc(100% + 6px);
+        }
+
+        .pl-category-ms.disabled .ms-btn,
+        .pl-category-ms .ms-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.45;
+            transform: none !important;
+            color: #b7b7b7;
+        }
+
+        .pl-category-ms.disabled .ms-btn:hover,
+        .pl-category-ms .ms-btn:disabled:hover {
+            background: #0f0f0f;
+            border-color: rgba(255, 255, 255, 0.14);
+            color: #b7b7b7;
+        }
+
         .pl-sub {
             color: #8b8b8b;
             font-size: 0.82rem;
@@ -1170,8 +1222,10 @@ $appConfig = [
             display: flex;
             align-items: center;
             justify-content: flex-end;
-            gap: 10px;
+            gap: 8px;
             white-space: nowrap;
+            flex: 1 1 auto;
+            min-width: 0;
         }
 
         .pl-cell .o .uf {
@@ -1184,6 +1238,19 @@ $appConfig = [
             width: 70px;
             text-align: left;
             justify-content: left;
+        }
+
+        .pl-cell .o .tkm {
+            display: inline-flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 6px;
+            font-family: 'Courier New', monospace;
+            font-weight: 900;
+            zoom: 96%;
+            width: 74px;
+            text-align: right;
+            white-space: nowrap;
         }
 
         .pl-cell .o .uf-tag {
@@ -1201,11 +1268,29 @@ $appConfig = [
             color: #ffffffc4;
         }
 
+        .pl-cell .o .tkm-tag {
+            padding: 2px 6px;
+            border-radius: 8px;
+            background: rgba(255, 209, 26, 0.10);
+            border: 1px solid rgba(255, 209, 26, 0.18);
+            font-size: 0.68rem;
+            letter-spacing: 0.3px;
+            color: #f9e69d;
+        }
+
+        .pl-cell .o .tkm-val {
+            font-size: 0.84rem;
+            color: #fff6d0;
+            min-width: 14px;
+            text-align: right;
+        }
+
         .pl-cell .o .main {
             font-weight: 900;
             font-size: 0.90rem;
             white-space: nowrap;
-            width: 30px;
+            width: 34px;
+            text-align: right;
         }
 
         .pl-plus-row .m {
@@ -1359,7 +1444,15 @@ $appConfig = [
             margin: 0 0 10px;
         }
 
-        .pl-custom .pc {
+        .pl-group-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin: 0 0 10px;
+        }
+
+        .pl-custom .pc,
+        .pl-group-row .pc {
             flex: 1;
             background: #0f0f0f;
             border: 1px solid rgba(255, 255, 255, 0.10);
@@ -1368,7 +1461,13 @@ $appConfig = [
             min-width: 0;
         }
 
-        .pl-custom .pc label {
+        .pl-group-row .pc {
+            flex: 0 0 190px;
+            max-width: 220px;
+        }
+
+        .pl-custom .pc label,
+        .pl-group-row .pc label {
             display: block;
             font-size: 0.70rem;
             color: #9a9a9a;
@@ -1378,7 +1477,8 @@ $appConfig = [
         }
 
         .pl-custom .pc select,
-        .pl-custom .pc input {
+        .pl-custom .pc input,
+        .pl-group-row .pc select {
             width: 100%;
             background: #090909;
             color: #fff;
@@ -1390,7 +1490,8 @@ $appConfig = [
         }
 
         .pl-custom .pc select:focus,
-        .pl-custom .pc input:focus {
+        .pl-custom .pc input:focus,
+        .pl-group-row .pc select:focus {
             border-color: rgba(255, 255, 255, 0.20);
         }
 
@@ -1649,7 +1750,7 @@ $appConfig = [
         <div class="filters-bar">
             <input type="text" id="filterSearch" class="filter-input" placeholder="Pesquisar time..." />
 
-            <div class="ms league" id="msLeague">
+            <div class="ms league" id="msLeague" data-ms-root="league">
                 <button type="button" class="ms-btn" data-ms="league" aria-haspopup="listbox" aria-expanded="false">
           <span class="ms-label">Ligas</span>
           <span class="ms-summary" id="msLeagueSummary">Todas</span>
@@ -1667,7 +1768,7 @@ $appConfig = [
                 </div>
             </div>
 
-            <div class="ms cat" id="msCategory">
+            <div class="ms cat" id="msCategory" data-ms-root="category">
                 <button type="button" class="ms-btn" data-ms="category" aria-haspopup="listbox" aria-expanded="false">
           <span class="ms-label">Categorias</span>
           <span class="ms-summary" id="msCategorySummary">Todas</span>
@@ -1888,6 +1989,20 @@ $appConfig = [
             <span class="tag">+</span>
           </button>
                     <button class="pl-live-btn" id="plLiveBtn" type="button" title="Marcar minuto ao vivo">AO VIVO</button>
+                    <div class="ms cat pl-category-ms" id="plCategoryMs" data-ms-root="category">
+                        <button type="button" class="ms-btn" data-ms="category" aria-haspopup="listbox" aria-expanded="false">
+              <span class="ms-label">Categorias</span>
+              <span class="ms-summary">Todas</span>
+              <span class="ms-caret">â–¾</span>
+            </button>
+                        <div class="ms-panel" role="listbox" aria-label="Selecionar categorias da Linha de preço">
+                            <div class="ms-actions">
+                                <button type="button" class="ms-mini-btn" data-ms-action="all" data-ms="category">Marcar todas</button>
+                                <button type="button" class="ms-mini-btn" data-ms-action="none" data-ms="category">Limpar</button>
+                            </div>
+                            <div class="ms-list"></div>
+                        </div>
+                    </div>
                     <div class="pl-live-inline" id="plLiveInline">
                         <input id="plLiveTime" type="text" inputmode="numeric" placeholder="77:12" maxlength="5" />
                         <div class="hint" id="plLiveHint">Tempo Atual: —</div>
@@ -1909,6 +2024,18 @@ $appConfig = [
                 <div class="pc">
                     <label>Linha de Preço</label>
                     <input id="plCustomOdd" type="number" step="0.10" inputmode="decimal" placeholder="4.60" />
+                </div>
+            </div>
+
+            <div class="pl-group-row">
+                <div class="pc">
+                    <label>Agrupar tempos</label>
+                    <select id="plGroupStep">
+            <option value="1">1 em 1</option>
+            <option value="5">5 em 5</option>
+            <option value="10">10 em 10</option>
+            <option value="15">15 em 15</option>
+          </select>
                 </div>
             </div>
 
@@ -1944,6 +2071,7 @@ $appConfig = [
             refresh_seconds: APP_CONFIG.refreshSeconds || 60
         };
         let SELECTED_PAYMENT_WINDOW = 5;
+        let PRICE_LINE_GROUP_STEP = 1;
 
         let RENDER_QUEUE = [];
         let CURRENT_RENDER_INDEX = 0;
@@ -2130,6 +2258,103 @@ $appConfig = [
             return Number(val.toFixed(2));
         }
 
+        function getLadderStep(val, direction) {
+            const base = Number.isFinite(val) ? Number(val) : 1.01;
+            const probe = base + ((direction || 1) > 0 ? 0.000001 : -0.000001);
+            for (let i = 0; i < LADDER_RANGES.length; i++) {
+                const range = LADDER_RANGES[i];
+                if (probe <= range.upTo) return range.step;
+            }
+            return LADDER_RANGES[LADDER_RANGES.length - 1].step;
+        }
+
+        function shiftLadderOdd(val, direction) {
+            if (!Number.isFinite(val)) return NaN;
+            const dir = direction >= 0 ? 1 : -1;
+            const normalized = getLadderTick(val);
+            const step = getLadderStep(normalized, dir);
+            return getLadderTick(normalized + (step * dir));
+        }
+
+        function countLadderTicks(fromOdd, toOdd) {
+            if (!Number.isFinite(fromOdd) || !Number.isFinite(toOdd)) return null;
+            const start = getLadderTick(fromOdd);
+            const target = getLadderTick(toOdd);
+            if (Math.abs(start - target) < 0.0001) return 0;
+            const direction = target > start ? 1 : -1;
+            let current = start;
+            let ticks = 0;
+            while (ticks < 1000 && Math.abs(current - target) >= 0.0001) {
+                current = shiftLadderOdd(current, direction);
+                ticks++;
+            }
+            return Math.abs(current - target) < 0.0001 ? ticks : null;
+        }
+
+        function hydrateTickPerMin(line) {
+            if (!Array.isArray(line)) return [];
+            for (let i = 0; i < line.length; i++) {
+                if (i >= line.length - 1) {
+                    line[i].tickPerMin = null;
+                    continue;
+                }
+                const ticks = countLadderTicks(line[i].odd, line[i + 1].odd);
+                line[i].tickPerMin = Number.isFinite(ticks) ? Math.max(1, ticks) : null;
+            }
+            return line;
+        }
+
+        function sanitizePriceLineGroupStep(step) {
+            const normalized = Number(step);
+            return [1, 5, 10, 15].includes(normalized) ? normalized : 1;
+        }
+
+        function getPriceLineGroupStep() {
+            return sanitizePriceLineGroupStep(PRICE_LINE_GROUP_STEP);
+        }
+
+        function syncPriceLineGroupUi() {
+            const select = document.getElementById('plGroupStep');
+            if (select) select.value = String(getPriceLineGroupStep());
+        }
+
+        function formatPriceLineRange(startMinute, endMinute) {
+            return startMinute === endMinute ? `${startMinute}'` : `${startMinute}-${endMinute}'`;
+        }
+
+        function buildGroupedPriceLine(line, step) {
+            if (!Array.isArray(line) || !line.length) return [];
+            const groupStep = sanitizePriceLineGroupStep(step);
+            const grouped = [];
+            for (let i = 0; i < line.length; i += groupStep) {
+                const bucket = line.slice(i, i + groupStep);
+                const first = bucket[0];
+                const last = bucket[bucket.length - 1];
+                const hasFollowingMinute = (i + bucket.length) < line.length;
+                const tickValues = bucket
+                    .map((row) => Number(row?.tickPerMin))
+                    .filter((value) => Number.isFinite(value));
+                const tickPerMin = hasFollowingMinute && tickValues.length
+                    ? tickValues.reduce((total, value) => total + value, 0) / tickValues.length
+                    : null;
+                grouped.push({
+                    ...first,
+                    tickPerMin,
+                    minuteStart: first.minute,
+                    minuteEnd: last.minute,
+                    rangeLabel: formatPriceLineRange(first.minute, last.minute)
+                });
+            }
+            return grouped;
+        }
+
+        function rangeContainsMinute(row, minute) {
+            if (!Number.isFinite(minute)) return false;
+            const minuteStart = Number(row?.minuteStart ?? row?.minute);
+            const minuteEnd = Number(row?.minuteEnd ?? row?.minute);
+            return Number.isFinite(minuteStart) && Number.isFinite(minuteEnd) && minute >= minuteStart && minute <= minuteEnd;
+        }
+
         function interpolateCorrelation(fairLimite) {
             if (!Number.isFinite(fairLimite)) return NaN;
             const table = CORRELATION_AFRENTE;
@@ -2166,10 +2391,11 @@ $appConfig = [
                 const tick = getLadderTick(raw);
                 out.push({
                     minute: m,
-                    odd: tick
+                    odd: tick,
+                    tickPerMin: null
                 });
             }
-            return out;
+            return hydrateTickPerMin(out);
         }
 
         function buildPriceLinePlus(phase, baseOdd, addMin) {
@@ -2189,10 +2415,11 @@ $appConfig = [
                 const odd = addTicksFrom(1.00, ticks);
                 out.push({
                     minute: m,
-                    odd
+                    odd,
+                    tickPerMin: null
                 });
             }
-            return out;
+            return hydrateTickPerMin(out);
         }
 
         function kindLabel(kind) {
@@ -2210,6 +2437,10 @@ $appConfig = [
 
         function fmt2(v) {
             return (v == null || !Number.isFinite(v)) ? '--' : Number(v).toFixed(2);
+        }
+
+        function fmtTickPerMin(v) {
+            return (v == null || !Number.isFinite(v)) ? '—' : String(Math.max(1, Math.round(Number(v))));
         }
 
         function avg(arr) {
@@ -2768,16 +2999,20 @@ $appConfig = [
             for (const c of cells) {
                 c.classList.remove('pl-live-now');
                 const mEl = c.querySelector('.m');
-                if (mEl) mEl.textContent = mEl.textContent.replace(/^🟢\s*/, '');
+                if (!mEl) continue;
+                const rangeLabel = String(c.dataset.rangeLabel || '').trim();
+                mEl.textContent = rangeLabel || mEl.textContent.replace(/^🟢\s*/, '');
             }
             if (minute == null) return;
             for (const c of cells) {
+                const minuteStart = Number(c.dataset.minuteStart);
+                const minuteEnd = Number(c.dataset.minuteEnd);
+                if (!Number.isFinite(minuteStart) || !Number.isFinite(minuteEnd)) continue;
                 const mEl = c.querySelector('.m');
                 if (!mEl) continue;
-                const txt = mEl.textContent.replace(/^🟢\s*/, '');
-                const mm = parseInt(String(txt).replace('min', '').trim(), 10);
-                if (mm === minute) {
-                    mEl.textContent = `🟢 ${minute}'`;
+                if (minute >= minuteStart && minute <= minuteEnd) {
+                    const rangeLabel = String(c.dataset.rangeLabel || formatPriceLineRange(minuteStart, minuteEnd));
+                    mEl.textContent = `🟢 ${rangeLabel}`;
                     c.classList.add('pl-live-now');
                     break;
                 }
@@ -3058,6 +3293,7 @@ $appConfig = [
             }
 
             if (customWrap) customWrap.style.display = PL_CUSTOM_MODE ? 'flex' : 'none';
+            syncPriceLineCategoryFilterUi();
 
             const showMids = (!PL_CUSTOM_MODE && showSwitch);
             if (switchEl) {
@@ -3071,9 +3307,11 @@ $appConfig = [
             }
 
             updatePlusUi();
+            syncPriceLineGroupUi();
 
             const isPlus = (overlay.dataset.plusMode === '1');
             const add = isPlus ? getPlusAdd() : 0;
+            const groupStep = getPriceLineGroupStep();
 
             const plusStart = (p === 'HT') ? 30 : 75;
             const plusBaseEnd = (p === 'HT') ? 45 : 90;
@@ -3099,16 +3337,21 @@ $appConfig = [
             });
             if (plusRow) plusRow.style.display = isPlus ? 'flex' : 'none';
 
-            const oddHtml = (v) => {
+            const oddHtml = (v, tickPerMin) => {
                 const main = Number(v).toFixed(2);
                 const uf = interpolateCorrelation(v);
                 const ufVal = Number.isFinite(uf) ? Number(uf).toFixed(2) : '—';
+                const tickVal = fmtTickPerMin(tickPerMin);
                 return `
       <span class="uf" title="Under A Frente">
         <span class="uf-tag">UF</span>
         <span class="uf-val">${ufVal}</span>
       </span>
       <span class="main ${clsOdd}">${main}</span>
+      <span class="tkm" title="Ticks por minuto">
+        <span class="tkm-tag">TK/M</span>
+        <span class="tkm-val">${tickVal}</span>
+      </span>
     `;
             };
 
@@ -3145,21 +3388,30 @@ $appConfig = [
                 if (idx2 >= 0) line[idx2].odd = 2.00;
                 if (idx3 >= 0) line[idx3].odd = 3.00;
             }
+            hydrateTickPerMin(line);
+            const hit2Minute = idx2 >= 0 ? Number(line[idx2]?.minute) : null;
+            const hit3Minute = idx3 >= 0 ? Number(line[idx3]?.minute) : null;
+            const displayLine = buildGroupedPriceLine(line, groupStep);
 
             let html = '';
-            for (let i = 0; i < line.length; i++) {
-                const row = line[i];
-                const hitCls = (!isPlus && i === idx3) ? 'pl-hit-3' : ((!isPlus && i === idx2) ? 'pl-hit-2' : '');
-                const hit80 = (!isHT && (row.minute === 80 || row.minute === 90)) ? 'pl-hit-80' : '';
+            for (let i = 0; i < displayLine.length; i++) {
+                const row = displayLine[i];
+                const containsHit3 = !isPlus && rangeContainsMinute(row, hit3Minute);
+                const containsHit2 = !isPlus && rangeContainsMinute(row, hit2Minute);
+                const hitCls = containsHit3 ? 'pl-hit-3' : (containsHit2 ? 'pl-hit-2' : '');
+                const hit80 = (!isHT && (rangeContainsMinute(row, 80) || rangeContainsMinute(row, 90))) ? 'pl-hit-80' : '';
+                const minuteStart = Number(row.minuteStart ?? row.minute);
+                const minuteEnd = Number(row.minuteEnd ?? row.minute);
+                const rangeLabel = escapeHtml(String(row.rangeLabel || formatPriceLineRange(minuteStart, minuteEnd)));
                 html += `
-      <div class="pl-cell ${hitCls} ${hit80}">
-        <div class="m">${row.minute}'</div>
-        <div class="o">${oddHtml(row.odd)}</div>
+      <div class="pl-cell ${hitCls} ${hit80}" data-minute-start="${minuteStart}" data-minute-end="${minuteEnd}" data-range-label="${rangeLabel}">
+        <div class="m">${rangeLabel}</div>
+        <div class="o">${oddHtml(row.odd, row.tickPerMin)}</div>
       </div>
     `;
             }
             if (!html) {
-                html = `<div class="pl-cell"><div class="m">—</div><div class="o"><span class="main">—</span><span class="af">+1 —</span></div></div>`;
+                html = `<div class="pl-cell"><div class="m">—</div><div class="o"><span class="uf"><span class="uf-tag">UF</span><span class="uf-val">—</span></span><span class="main">—</span><span class="tkm"><span class="tkm-tag">TK/M</span><span class="tkm-val">—</span></span></div></div>`;
             }
             grid.insertAdjacentHTML('beforeend', html);
 
@@ -3230,9 +3482,9 @@ $appConfig = [
                         if (ch !== plusRow) ch.remove();
                     });
                     if (plusRow) plusRow.style.display = 'none';
-                    grid.insertAdjacentHTML('beforeend', `<div class="pl-cell"><div class="m">—</div><div class="o"><span class="main">—</span><span class="af">+1 —</span></div></div>`);
+                    grid.insertAdjacentHTML('beforeend', `<div class="pl-cell"><div class="m">—</div><div class="o"><span class="uf"><span class="uf-tag">UF</span><span class="uf-val">—</span></span><span class="main">—</span><span class="tkm"><span class="tkm-tag">TK/M</span><span class="tkm-val">—</span></span></div></div>`);
                 }
-                return;
+                    return;
             }
 
             const factor = customKindFactor(kind);
@@ -3394,31 +3646,47 @@ $appConfig = [
             return out;
         }
 
-        function updateMsSummary(type) {
+        function getMsRoots(type) {
+            return Array.from(document.querySelectorAll(`.ms[data-ms-root="${type}"]`));
+        }
+
+        function getMsSummaryText(type) {
             const set = ACTIVE_FILTERS[type];
-            const el = document.getElementById(type === 'league' ? 'msLeagueSummary' : 'msCategorySummary');
-            if (!el) return;
-            if (!set.size) {
-                el.textContent = 'Todas';
-                return;
+            if (!set || !set.size) return 'Todas';
+            if (set.size === 1) return [...set][0];
+            return `${set.size} selecionadas`;
+        }
+
+        function toggleMsRoot(root, open) {
+            if (!root) return;
+            const btn = root.querySelector('.ms-btn');
+            if (btn && btn.disabled) open = false;
+            if (open) root.classList.add('open');
+            else root.classList.remove('open');
+            if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+
+        function updateMsSummary(type) {
+            const summary = getMsSummaryText(type);
+            const roots = getMsRoots(type);
+            for (const root of roots) {
+                const el = root.querySelector('.ms-summary');
+                if (el) el.textContent = summary;
             }
-            if (set.size === 1) {
-                el.textContent = [...set][0];
-                return;
-            }
-            el.textContent = `${set.size} selecionadas`;
         }
 
         function buildMsList(type, options) {
-            const listEl = document.getElementById(type === 'league' ? 'msLeagueList' : 'msCategoryList');
-            if (!listEl) return;
             const set = ACTIVE_FILTERS[type];
+            const roots = getMsRoots(type);
+            for (const root of roots) {
+                const listEl = root.querySelector('.ms-list');
+                if (!listEl) continue;
             if (!options || options.length === 0) {
                 listEl.innerHTML = `<div style="color:#777; font-size:0.85rem; padding:8px;">Sem opções</div>`;
                 return;
             }
             if (type === 'league') {
-                const q = document.getElementById('msLeagueSearch') ?.value || '';
+                const q = root.querySelector('.ms-search input') ?.value || '';
                 const mixed = buildLeagueTopics(options, q);
                 if (!mixed.length) {
                     listEl.innerHTML = `<div style="color:#777; font-size:0.85rem; padding:8px;">Nenhuma liga encontrada</div>`;
@@ -3446,6 +3714,8 @@ $appConfig = [
       </label>
     `;
             }).join("");
+        }
+
         }
 
         function setAllMs(type, options) {
@@ -3550,6 +3820,7 @@ $appConfig = [
             updateShownCount(dadosFiltrados.length);
             atualizarResumoGlobal(dadosFiltrados);
             buildRenderQueue(dadosFiltrados);
+            refreshOpenPriceLineFilterContext();
         }
 
         function buildRenderQueue(dados) {
@@ -3969,6 +4240,125 @@ $appConfig = [
             return CATEGORY_OPTIONS;
         }
 
+        function buildMsList(type, options) {
+            const set = ACTIVE_FILTERS[type];
+            const roots = getMsRoots(type);
+            for (const root of roots) {
+                const listEl = root.querySelector('.ms-list');
+                if (!listEl) continue;
+                if (!options || options.length === 0) {
+                    listEl.innerHTML = `<div style="color:#777; font-size:0.85rem; padding:8px;">Sem opções</div>`;
+                    continue;
+                }
+                if (type === 'league') {
+                    const q = root.querySelector('.ms-search input') ?.value || '';
+                    const mixed = buildLeagueTopics(options, q);
+                    if (!mixed.length) {
+                        listEl.innerHTML = `<div style="color:#777; font-size:0.85rem; padding:8px;">Nenhuma liga encontrada</div>`;
+                        continue;
+                    }
+                    listEl.innerHTML = mixed.map(row => {
+                        if (row.type === 'sep') return `<div class="ms-sep">${escapeHtml(row.label)}</div>`;
+                        const opt = row.value;
+                        const checked = set.has(opt) ? 'checked' : '';
+                        return `
+        <label class="ms-item" data-ms-item="league" data-value="${escapeHtml(opt)}">
+          <input type="checkbox" ${checked} data-ms-check="league" value="${escapeHtml(opt)}">
+          <span title="${escapeHtml(opt)}">${escapeHtml(opt)}</span>
+        </label>
+      `;
+                    }).join("");
+                    continue;
+                }
+                listEl.innerHTML = options.map(opt => {
+                    const checked = set.has(opt) ? 'checked' : '';
+                    return `
+      <label class="ms-item" data-ms-item="${type}" data-value="${escapeHtml(opt)}">
+        <input type="checkbox" ${checked} data-ms-check="${type}" value="${escapeHtml(opt)}">
+        <span title="${escapeHtml(opt)}">${escapeHtml(opt)}</span>
+      </label>
+    `;
+                }).join("");
+            }
+        }
+
+        function setAllMs(type, options, root) {
+            if (type === 'league') {
+                const qRaw = root ?.querySelector('.ms-search input') ?.value || '';
+                const q = normalizeSearch(qRaw);
+                if (q) {
+                    const listEl = root ?.querySelector('.ms-list');
+                    const visible = listEl ? Array.from(listEl.querySelectorAll('input[data-ms-check="league"]')).map(inp => String(inp.value || '').trim()).filter(Boolean) : [];
+                    const set = ACTIVE_FILTERS.league;
+                    for (const v of visible) set.add(v);
+                    buildMsList('league', options);
+                    updateMsSummary('league');
+                    filtrarDashboard();
+                    return;
+                }
+            }
+            const set = ACTIVE_FILTERS[type];
+            set.clear();
+            for (const o of options) set.add(o);
+            buildMsList(type, options);
+            updateMsSummary(type);
+            filtrarDashboard();
+        }
+
+        function clearMs(type, options) {
+            ACTIVE_FILTERS[type].clear();
+            buildMsList(type, options);
+            updateMsSummary(type);
+            filtrarDashboard();
+        }
+
+        function toggleMs(type, open) {
+            const roots = getMsRoots(type);
+            for (const root of roots) toggleMsRoot(root, open);
+        }
+
+        function closeAllMs(exceptRoot = null) {
+            const roots = Array.from(document.querySelectorAll('.ms.open'));
+            for (const root of roots) {
+                if (exceptRoot && root === exceptRoot) continue;
+                toggleMsRoot(root, false);
+            }
+        }
+
+        function syncPriceLineCategoryFilterUi() {
+            const root = document.getElementById('plCategoryMs');
+            if (!root) return;
+            const btn = root.querySelector('.ms-btn');
+            const overlay = getOverlay();
+            const disabled = !!overlay && overlay.dataset.customMode === '1';
+            root.classList.toggle('disabled', disabled);
+            if (btn) {
+                btn.disabled = disabled;
+                btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+            }
+            if (disabled) toggleMsRoot(root, false);
+        }
+
+        function refreshOpenPriceLineFilterContext() {
+            const overlay = getOverlay();
+            if (!overlay || overlay.style.display !== 'flex') return;
+            syncPriceLineCategoryFilterUi();
+            const switchEl = document.getElementById('plSwitch');
+            if (!switchEl) return;
+            const showSwitch = overlay.dataset.showSwitch === '1';
+            if (!showSwitch) {
+                switchEl.innerHTML = '';
+                switchEl.classList.remove('grid');
+                switchEl.style.display = 'none';
+                return;
+            }
+            const phase = (overlay.dataset.phase || 'FT').toUpperCase() === 'HT' ? 'HT' : 'FT';
+            const kind = String(overlay.dataset.kind || 'total').toLowerCase() || 'total';
+            const showMids = overlay.dataset.customMode !== '1';
+            renderSwitchBar(phase, kind, showMids);
+            switchEl.style.display = 'grid';
+        }
+
         document.addEventListener("DOMContentLoaded", () => {
             carregarEstudos();
 
@@ -4003,6 +4393,19 @@ $appConfig = [
                 localStorage.setItem('pj_payment_window', String(SELECTED_PAYMENT_WINDOW));
                 filtrarDashboard();
             });
+            const plGroupStep = document.getElementById('plGroupStep');
+            const savedPlGroupStep = localStorage.getItem('pj_price_line_group_step');
+            PRICE_LINE_GROUP_STEP = sanitizePriceLineGroupStep(savedPlGroupStep || plGroupStep?.value || '1');
+            if (plGroupStep) {
+                plGroupStep.value = String(PRICE_LINE_GROUP_STEP);
+                plGroupStep.addEventListener('change', () => {
+                    PRICE_LINE_GROUP_STEP = sanitizePriceLineGroupStep(plGroupStep.value || '1');
+                    plGroupStep.value = String(PRICE_LINE_GROUP_STEP);
+                    localStorage.setItem('pj_price_line_group_step', String(PRICE_LINE_GROUP_STEP));
+                    rerenderCurrentPriceLine();
+                    if (PL_LIVE_ENABLED) updateLiveMarker();
+                });
+            }
 
             document.getElementById('modalOverlay').addEventListener('click', (e) => {
                 if (e.target === document.getElementById('modalOverlay')) fecharModal();
@@ -4025,13 +4428,14 @@ $appConfig = [
             document.addEventListener('click', (e) => {
                 const msBtn = e.target.closest('.ms-btn');
                 if (msBtn) {
-                    const type = msBtn.dataset.ms;
                     const root = msBtn.closest('.ms');
+                    if (!root || msBtn.disabled || root.classList.contains('disabled')) return;
+                    const type = root.dataset.msRoot || msBtn.dataset.ms;
                     const isOpen = root.classList.contains('open');
-                    closeAllMs();
-                    toggleMs(type, !isOpen);
+                    closeAllMs(root);
+                    toggleMsRoot(root, !isOpen);
                     if (type === 'league' && !isOpen) {
-                        const inp = document.getElementById('msLeagueSearch');
+                        const inp = root.querySelector('.ms-search input');
                         if (inp) {
                             inp.focus();
                             inp.select();
@@ -4045,10 +4449,11 @@ $appConfig = [
             document.addEventListener('click', (e) => {
                 const act = e.target.closest('[data-ms-action]');
                 if (act) {
-                    const type = act.dataset.ms;
+                    const root = act.closest('.ms');
+                    const type = root ?.dataset.msRoot || act.dataset.ms;
                     const action = act.dataset.msAction;
                     const opts = msOptionsFor(type);
-                    if (action === 'all') setAllMs(type, opts);
+                    if (action === 'all') setAllMs(type, opts, root);
                     if (action === 'none') clearMs(type, opts);
                     return;
                 }
@@ -4057,11 +4462,13 @@ $appConfig = [
             document.addEventListener('change', (e) => {
                 const chk = e.target.closest('[data-ms-check]');
                 if (!chk) return;
-                const type = chk.dataset.msCheck;
+                const root = chk.closest('.ms');
+                const type = root ?.dataset.msRoot || chk.dataset.msCheck;
                 const val = chk.value;
                 const set = ACTIVE_FILTERS[type];
                 if (chk.checked) set.add(val);
                 else set.delete(val);
+                buildMsList(type, msOptionsFor(type));
                 updateMsSummary(type);
                 filtrarDashboard();
             });
