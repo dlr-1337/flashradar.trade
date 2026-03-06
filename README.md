@@ -9,7 +9,7 @@ preparado para subir com clique duplo.
 Este repositorio entrega um painel local com:
 
 - login simples para proteger o acesso;
-- leitura opcional de odds via API;
+- leitura opcional de odds via Odds API;
 - funcionamento completo em modo manual quando a API nao esta configurada;
 - runtime PHP embutido para rodar em Windows sem instalacao extra.
 
@@ -59,11 +59,28 @@ Se quiser habilitar odds da API:
 
 1. Abra `price_data/config.local.php`.
 2. Preencha `api.key` com a sua chave.
-3. Salve o arquivo.
-4. Reinicie com `start-local.bat`.
+3. Confira `api.bookmakers` com a lista de casas desejadas.
+4. Salve o arquivo.
+5. Reinicie com `start-local.bat`.
 
 Sem chave, o painel continua funcionando em modo manual e mostra um aviso no
 topo informando que a API nao esta configurada.
+
+### Configuracao padrao da Odds API
+
+O exemplo do projeto usa:
+
+- `api.base_url = https://api.odds-api.io/v3`
+- `api.sport = football`
+- `api.bookmakers = ['Bet365', 'Betano', '1xbet']`
+
+Voce pode ajustar os bookmakers no `config.local.php`. Quando uma casa
+prioritaria nao tiver mercado compativel, o backend tenta usar outra casa
+retornada pela Odds API com mercado `ML`.
+
+Importante: a lista disponivel depende do seu plano e dos bookmakers
+selecionados no dashboard da Odds API. Se a API responder com erro de acesso,
+reduza `api.bookmakers` para nomes que a sua conta realmente permite.
 
 ## Como parar o servidor
 

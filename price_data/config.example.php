@@ -8,11 +8,12 @@ return [
         'password_hash' => '$2y$12$4kmOKSDz8KNkcK9XaRGCWO8U2UX56.iwOXcZf5nBGzUBFuQO2j1A2',
     ],
     'api' => [
-        'key' => '',
-        'base_url' => 'https://v3.football.api-sports.io',
+        'key' => 'PASTE_ODDS_API_KEY_HERE',
+        'base_url' => 'https://api.odds-api.io/v3',
+        'sport' => 'football',
         'timezone' => 'America/Sao_Paulo',
         'cache_ttl_seconds' => 60,
-        'bookmaker_priority' => ['Bet365', 'Betano', 'Pinnacle', '1xBet'],
+        'bookmakers' => ['Bet365', 'Betano', '1xbet'],
     ],
     'thresholds' => [
         'parelho_max' => 3.8,

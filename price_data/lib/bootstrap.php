@@ -105,6 +105,68 @@ function pj_json_response(array $payload, int $status = 200): never
     exit;
 }
 
+function pj_upstream_error_message(array $payload): ?string
+{
+    $candidates = [];
+    if (array_key_exists('errors', $payload)) {
+        $candidates[] = $payload['errors'];
+    }
+    if (array_key_exists('error', $payload)) {
+        $candidates[] = $payload['error'];
+    }
+    if (array_key_exists('message', $payload)) {
+        $candidates[] = $payload['message'];
+    }
+
+    if ($candidates === []) {
+        return null;
+    }
+
+    $messages = [];
+
+    $collect = static function (mixed $value) use (&$messages): void {
+        if (!is_scalar($value)) {
+            return;
+        }
+
+        $text = trim((string) $value);
+        if ($text === '') {
+            return;
+        }
+
+        $messages[] = $text;
+    };
+
+    foreach ($candidates as $candidate) {
+        if (is_array($candidate)) {
+            array_walk_recursive($candidate, static function (mixed $value) use ($collect): void {
+                $collect($value);
+            });
+            continue;
+        }
+
+        $collect($candidate);
+    }
+
+    if ($messages === []) {
+        return null;
+    }
+
+    return implode(' ', array_values(array_unique($messages)));
+}
+
+function pj_assert_upstream_payload(array $payload, int $status): void
+{
+    $upstreamError = pj_upstream_error_message($payload);
+    if ($upstreamError !== null) {
+        throw new RuntimeException('Upstream API error: ' . $upstreamError);
+    }
+
+    if ($status >= 400) {
+        throw new RuntimeException('Upstream returned HTTP ' . $status);
+    }
+}
+
 function pj_load_config_file(string $file): array
 {
     if (!is_file($file)) {
@@ -116,40 +178,78 @@ function pj_load_config_file(string $file): array
     return is_array($loaded) ? $loaded : [];
 }
 
-function pj_config(): array
+function pj_normalize_bookmaker_names(mixed $bookmakers): array
 {
-    static $config;
+    $normalized = [];
+    foreach ((array) $bookmakers as $bookmaker) {
+        $name = trim((string) $bookmaker);
+        if ($name === '') {
+            continue;
+        }
 
-    if ($config !== null) {
-        return $config;
+        $normalized[] = $name;
     }
 
-    $default = [
-        'auth' => [
-            'username' => 'admin',
-            'password_hash' => '',
-        ],
-        'api' => [
-            'key' => '',
-            'base_url' => 'https://v3.football.api-sports.io',
-            'timezone' => 'America/Sao_Paulo',
-            'cache_ttl_seconds' => 60,
-            'bookmaker_priority' => ['Bet365', 'Betano', 'Pinnacle', '1xBet'],
-        ],
-        'thresholds' => [
-            'parelho_max' => 3.8,
-            'super_min' => 6.2,
-        ],
-        'dashboard' => [
-            'refresh_seconds' => 60,
-        ],
-    ];
+    return array_values(array_unique($normalized));
+}
 
-    $example = pj_load_config_file(pj_root_path('config.example.php'));
-    $local = pj_load_config_file(pj_root_path('config.local.php'));
-    $config = array_replace_recursive($default, $example, $local);
+function pj_config(): array
+{
+    static $baseConfig;
 
-    return $config;
+    if ($baseConfig === null) {
+        $default = [
+            'auth' => [
+                'username' => 'admin',
+                'password_hash' => '',
+            ],
+            'api' => [
+                'key' => '',
+                'base_url' => 'https://api.odds-api.io/v3',
+                'sport' => 'football',
+                'timezone' => 'America/Sao_Paulo',
+                'cache_ttl_seconds' => 60,
+                'bookmakers' => ['Bet365', 'Betano', '1xbet'],
+            ],
+            'thresholds' => [
+                'parelho_max' => 3.8,
+                'super_min' => 6.2,
+            ],
+            'dashboard' => [
+                'refresh_seconds' => 60,
+            ],
+        ];
+
+        $example = pj_load_config_file(pj_root_path('config.example.php'));
+        $local = pj_load_config_file(pj_root_path('config.local.php'));
+        $baseConfig = array_replace_recursive($default, $example, $local);
+
+        $baseUrl = trim((string) ($baseConfig['api']['base_url'] ?? ''));
+        if ($baseUrl === '' || str_contains(strtolower($baseUrl), 'api-sports')) {
+            $baseConfig['api']['base_url'] = $default['api']['base_url'];
+        }
+
+        $sport = trim((string) ($baseConfig['api']['sport'] ?? ''));
+        if ($sport === '') {
+            $baseConfig['api']['sport'] = $default['api']['sport'];
+        }
+
+        $bookmakers = $local['api']['bookmakers'] ?? $local['api']['bookmaker_priority'] ?? $example['api']['bookmakers'] ?? $example['api']['bookmaker_priority'] ?? $default['api']['bookmakers'];
+        $baseConfig['api']['bookmakers'] = pj_normalize_bookmaker_names($bookmakers);
+    }
+
+    $override = $GLOBALS['__PJ_CONFIG_OVERRIDE'] ?? null;
+    if (is_array($override) && $override !== []) {
+        $resolved = array_replace_recursive($baseConfig, $override);
+        $overrideBookmakers = $override['api']['bookmakers'] ?? $override['api']['bookmaker_priority'] ?? null;
+        if ($overrideBookmakers !== null) {
+            $resolved['api']['bookmakers'] = pj_normalize_bookmaker_names($overrideBookmakers);
+        }
+
+        return $resolved;
+    }
+
+    return $baseConfig;
 }
 
 function pj_is_authenticated(): bool
@@ -306,7 +406,9 @@ function pj_has_api_key(): bool
 {
     $key = trim((string) (pj_config()['api']['key'] ?? ''));
 
-    return $key !== '' && $key !== 'PASTE_API_FOOTBALL_KEY_HERE';
+    return $key !== ''
+        && $key !== 'PASTE_API_FOOTBALL_KEY_HERE'
+        && $key !== 'PASTE_ODDS_API_KEY_HERE';
 }
 
 function pj_http_json(string $method, string $url, array $headers = []): array
@@ -372,9 +474,7 @@ function pj_http_json(string $method, string $url, array $headers = []): array
         throw new RuntimeException('Invalid JSON response from upstream.');
     }
 
-    if ($status >= 400) {
-        throw new RuntimeException('Upstream returned HTTP ' . $status);
-    }
+    pj_assert_upstream_payload($decoded, $status);
 
     return $decoded;
 }
@@ -423,48 +523,114 @@ function pj_format_kickoff_for_table(?string $isoString, string $timezone): stri
     }
 }
 
-function pj_status_code(array $fixture): string
+function pj_odds_api_normalize_status(mixed $status): string
 {
-    return strtoupper((string) ($fixture['fixture']['status']['short'] ?? ''));
+    $normalized = strtolower(trim((string) $status));
+    return match ($normalized) {
+        'live', 'inplay', 'in_play', 'in-play', 'running' => 'LIVE',
+        'halftime', 'half-time', 'ht' => 'HT',
+        'ended', 'completed', 'settled', 'final', 'finished' => 'FT',
+        'postponed', 'canceled', 'cancelled', 'suspended', 'abandoned' => 'PST',
+        'pending', 'upcoming', 'scheduled', 'not_started', 'not-started' => 'NS',
+        default => strtoupper(trim((string) $status)),
+    };
 }
 
-function pj_elapsed_minutes(array $fixture): ?int
+function pj_odds_api_score_label(array $event): string
 {
-    $elapsed = $fixture['fixture']['status']['elapsed'] ?? null;
-    if ($elapsed === null || $elapsed === '') {
-        return null;
-    }
-
-    return is_numeric($elapsed) ? (int) $elapsed : null;
-}
-
-function pj_half_time_score(array $fixture): string
-{
-    $home = $fixture['score']['halftime']['home'] ?? null;
-    $away = $fixture['score']['halftime']['away'] ?? null;
-
-    if ($home === null || $away === null) {
+    $status = pj_odds_api_normalize_status($event['status'] ?? '');
+    if (in_array($status, ['NS', 'PST', 'TBD'], true)) {
         return '';
     }
 
-    return (string) $home . 'x' . (string) $away;
+    $home = $event['scores']['home'] ?? null;
+    $away = $event['scores']['away'] ?? null;
+    if (!is_numeric((string) $home) || !is_numeric((string) $away)) {
+        return '';
+    }
+
+    return (string) ((int) $home) . 'x' . (string) ((int) $away);
 }
 
-function pj_fixture_date_iso(array $fixture): ?string
+function pj_odds_api_event_date_iso(array $event): ?string
 {
-    $date = $fixture['fixture']['date'] ?? null;
-    return is_string($date) && $date !== '' ? $date : null;
+    $date = $event['date'] ?? null;
+    return is_string($date) && trim($date) !== '' ? $date : null;
+}
+
+function pj_odds_api_bookmakers(): array
+{
+    $bookmakers = pj_config()['api']['bookmakers'] ?? [];
+    $normalized = [];
+    foreach ((array) $bookmakers as $bookmaker) {
+        $name = trim((string) $bookmaker);
+        if ($name === '') {
+            continue;
+        }
+
+        $normalized[] = $name;
+    }
+
+    return array_values(array_unique($normalized));
+}
+
+function pj_odds_api_headers(): array
+{
+    return [
+        'Accept' => 'application/json',
+    ];
+}
+
+function pj_odds_api_url(string $path, array $params = []): string
+{
+    $baseUrl = rtrim((string) (pj_config()['api']['base_url'] ?? ''), '/');
+    $query = [];
+    foreach ($params as $key => $value) {
+        if ($value === null) {
+            continue;
+        }
+
+        if (is_string($value) && trim($value) === '') {
+            continue;
+        }
+
+        $query[$key] = $value;
+    }
+
+    return $baseUrl . $path . ($query !== [] ? '?' . http_build_query($query) : '');
+}
+
+function pj_odds_api_get(string $path, array $params = []): array
+{
+    $params['apiKey'] = (string) (pj_config()['api']['key'] ?? '');
+    return pj_http_json('GET', pj_odds_api_url($path, $params), pj_odds_api_headers());
 }
 
 function pj_find_market(array $bookmaker, array $aliases): ?array
 {
     $markets = $bookmaker['markets'] ?? $bookmaker['bets'] ?? $bookmaker['odds'] ?? [];
     foreach ($markets as $bet) {
+        if (!is_array($bet)) {
+            continue;
+        }
+
         $name = strtolower(trim((string) ($bet['name'] ?? '')));
         foreach ($aliases as $alias) {
             if ($name === strtolower($alias)) {
                 return $bet;
             }
+        }
+    }
+
+    return null;
+}
+
+function pj_odds_api_market_price(array $entry): ?float
+{
+    foreach (['odd', 'price', 'decimal', 'under', 'over'] as $key) {
+        $value = $entry[$key] ?? null;
+        if ($value !== null && is_numeric((string) $value)) {
+            return (float) $value;
         }
     }
 
@@ -481,15 +647,37 @@ function pj_market_odd_for_side(?array $market, string $side, string $teamName):
         ? ['home', '1', strtolower($teamName)]
         : ['away', '2', strtolower($teamName)];
 
-    foreach ($market['values'] ?? [] as $value) {
-        $label = strtolower(trim((string) ($value['value'] ?? '')));
-        if (!in_array($label, $aliases, true)) {
+    foreach ((array) ($market['odds'] ?? []) as $entry) {
+        if (!is_array($entry)) {
             continue;
         }
 
-        $odd = $value['odd'] ?? null;
-        if ($odd !== null && is_numeric((string) $odd)) {
-            return (float) $odd;
+        $directValue = $entry[$side] ?? null;
+        if ($directValue !== null && is_numeric((string) $directValue)) {
+            return (float) $directValue;
+        }
+
+        $labels = [
+            strtolower(trim((string) ($entry['label'] ?? ''))),
+            strtolower(trim((string) ($entry['name'] ?? ''))),
+            strtolower(trim((string) ($entry['value'] ?? ''))),
+        ];
+
+        $matched = false;
+        foreach ($aliases as $alias) {
+            if (in_array($alias, $labels, true)) {
+                $matched = true;
+                break;
+            }
+        }
+
+        if (!$matched) {
+            continue;
+        }
+
+        $price = pj_odds_api_market_price($entry);
+        if ($price !== null) {
+            return $price;
         }
     }
 
@@ -498,8 +686,8 @@ function pj_market_odd_for_side(?array $market, string $side, string $teamName):
 
 function pj_bookmaker_has_team_markets(array $bookmaker, string $homeName, string $awayName): array
 {
-    $ftAliases = ['match winner', 'match winner 1x2', '1x2', 'winner', 'fulltime result', 'full time result', 'result'];
-    $htAliases = ['halftime result', 'half time result', '1st half winner', 'first half winner', '1x2 (1st half)', '1x2 1st half', 'first half result'];
+    $ftAliases = ['ml', 'moneyline', 'match winner', '1x2', 'winner', 'full time result'];
+    $htAliases = ['half time result', 'halftime result', '1st half winner', 'first half result'];
 
     $ftMarket = pj_find_market($bookmaker, $ftAliases);
     $htMarket = pj_find_market($bookmaker, $htAliases);
@@ -519,22 +707,30 @@ function pj_bookmaker_has_team_markets(array $bookmaker, string $homeName, strin
 function pj_normalize_odds_sources(array $oddsEntry): array
 {
     $sources = [];
+    $bookmakers = $oddsEntry['bookmakers'] ?? [];
+    if (!is_array($bookmakers)) {
+        return [];
+    }
 
-    foreach ($oddsEntry['bookmakers'] ?? [] as $bookmaker) {
-        if (!is_array($bookmaker)) {
+    foreach ($bookmakers as $name => $markets) {
+        if (is_string($name)) {
+            $sourceName = trim($name);
+            $sourceMarkets = is_array($markets) ? $markets : [];
+        } elseif (is_array($markets)) {
+            $sourceName = trim((string) ($markets['name'] ?? ''));
+            $sourceMarkets = $markets['markets'] ?? $markets['odds'] ?? [];
+            $sourceMarkets = is_array($sourceMarkets) ? $sourceMarkets : [];
+        } else {
+            continue;
+        }
+
+        if ($sourceName === '') {
             continue;
         }
 
         $sources[] = [
-            'name' => (string) ($bookmaker['name'] ?? ''),
-            'markets' => is_array($bookmaker['bets'] ?? null) ? $bookmaker['bets'] : [],
-        ];
-    }
-
-    if (is_array($oddsEntry['odds'] ?? null) && $oddsEntry['odds'] !== []) {
-        $sources[] = [
-            'name' => (string) ($oddsEntry['provider'] ?? 'Live Odds'),
-            'markets' => $oddsEntry['odds'],
+            'name' => $sourceName,
+            'markets' => $sourceMarkets,
         ];
     }
 
@@ -543,7 +739,7 @@ function pj_normalize_odds_sources(array $oddsEntry): array
 
 function pj_select_bookmaker(array $oddsEntry, string $homeName, string $awayName): array
 {
-    $priority = pj_config()['api']['bookmaker_priority'] ?? [];
+    $priority = pj_odds_api_bookmakers();
     $sources = pj_normalize_odds_sources($oddsEntry);
     if ($sources === []) {
         return [];
@@ -557,12 +753,13 @@ function pj_select_bookmaker(array $oddsEntry, string $homeName, string $awayNam
                 continue;
             }
 
-            if (strcasecmp((string) ($bookmaker['name'] ?? ''), (string) $wanted) === 0) {
+            if (strcasecmp((string) ($bookmaker['name'] ?? ''), $wanted) === 0) {
                 $ordered[] = $bookmaker;
                 $used[$index] = true;
             }
         }
     }
+
     foreach ($sources as $index => $bookmaker) {
         if (($used[$index] ?? false) === true) {
             continue;
@@ -579,7 +776,7 @@ function pj_select_bookmaker(array $oddsEntry, string $homeName, string $awayNam
 
         if ($hasFt && $hasHt) {
             return [
-                'bookmaker' => (string) ($bookmaker['name'] ?? 'Live Odds'),
+                'bookmaker' => (string) ($bookmaker['name'] ?? 'Odds API'),
                 'ft' => $marketSet['ft'],
                 'ht' => $marketSet['ht'],
             ];
@@ -587,7 +784,7 @@ function pj_select_bookmaker(array $oddsEntry, string $homeName, string $awayNam
 
         if ($hasFt && $bestFtOnly === null) {
             $bestFtOnly = [
-                'bookmaker' => (string) ($bookmaker['name'] ?? 'Live Odds'),
+                'bookmaker' => (string) ($bookmaker['name'] ?? 'Odds API'),
                 'ft' => $marketSet['ft'],
                 'ht' => $marketSet['ht'],
             ];
@@ -595,6 +792,155 @@ function pj_select_bookmaker(array $oddsEntry, string $homeName, string $awayNam
     }
 
     return $bestFtOnly ?? [];
+}
+
+function pj_build_rows_from_odds_event(array $event, array $oddsEntry, string $timezone): array
+{
+    $eventId = (int) ($event['id'] ?? $oddsEntry['id'] ?? 0);
+    $homeName = trim((string) ($event['home'] ?? $oddsEntry['home'] ?? ''));
+    $awayName = trim((string) ($event['away'] ?? $oddsEntry['away'] ?? ''));
+    if ($eventId <= 0 || $homeName === '' || $awayName === '') {
+        return [];
+    }
+
+    $bookmakerSelection = pj_select_bookmaker($oddsEntry, $homeName, $awayName);
+    if ($bookmakerSelection === []) {
+        return [];
+    }
+
+    $homeFt = $bookmakerSelection['ft']['home'] ?? null;
+    $awayFt = $bookmakerSelection['ft']['away'] ?? null;
+    if (!is_float($homeFt) || !is_float($awayFt)) {
+        return [];
+    }
+
+    $kickoffAt = pj_odds_api_event_date_iso($event) ?? pj_odds_api_event_date_iso($oddsEntry);
+    $dateLabel = pj_format_kickoff_for_table($kickoffAt, $timezone);
+    $status = pj_odds_api_normalize_status($event['status'] ?? $oddsEntry['status'] ?? '');
+    $scoreLabel = pj_odds_api_score_label($event);
+    $league = trim((string) ($event['league']['name'] ?? $oddsEntry['league']['name'] ?? ''));
+    $bookmakerName = (string) ($bookmakerSelection['bookmaker'] ?? '');
+
+    return [
+        [
+            'id' => 'api_' . $eventId . '_home',
+            'league' => $league,
+            'category' => pj_category_for_odd($homeFt),
+            'team' => $homeName,
+            'venue' => 'Casa',
+            'date' => $dateLabel,
+            'odd_ht' => isset($bookmakerSelection['ht']['home']) && is_float($bookmakerSelection['ht']['home']) ? (string) $bookmakerSelection['ht']['home'] : '',
+            'score_ht' => $scoreLabel,
+            'odd_ft' => (string) $homeFt,
+            'opponent' => $awayName,
+            'source' => 'api',
+            'fixture_id' => $eventId,
+            'match_status' => $status,
+            'elapsed_min' => null,
+            'kickoff_at' => $kickoffAt,
+            'bookmaker' => $bookmakerName,
+        ],
+        [
+            'id' => 'api_' . $eventId . '_away',
+            'league' => $league,
+            'category' => pj_category_for_odd($awayFt),
+            'team' => $awayName,
+            'venue' => 'Fora',
+            'date' => $dateLabel,
+            'odd_ht' => isset($bookmakerSelection['ht']['away']) && is_float($bookmakerSelection['ht']['away']) ? (string) $bookmakerSelection['ht']['away'] : '',
+            'score_ht' => $scoreLabel,
+            'odd_ft' => (string) $awayFt,
+            'opponent' => $homeName,
+            'source' => 'api',
+            'fixture_id' => $eventId,
+            'match_status' => $status,
+            'elapsed_min' => null,
+            'kickoff_at' => $kickoffAt,
+            'bookmaker' => $bookmakerName,
+        ],
+    ];
+}
+
+function pj_odds_api_today_window(string $timezone): array
+{
+    $now = new DateTimeImmutable('now', new DateTimeZone($timezone));
+    $end = $now->setTime(23, 59, 59);
+
+    return [
+        'from' => $now->format(DateTimeInterface::RFC3339),
+        'to' => $end->format(DateTimeInterface::RFC3339),
+    ];
+}
+
+function pj_odds_api_filter_events(array $payload): array
+{
+    $events = [];
+    foreach ($payload as $event) {
+        if (is_array($event)) {
+            $events[] = $event;
+        }
+    }
+
+    return $events;
+}
+
+function pj_odds_api_fetch_events(string $timezone): array
+{
+    $window = pj_odds_api_today_window($timezone);
+    $sport = (string) (pj_config()['api']['sport'] ?? 'football');
+
+    $todayEvents = pj_odds_api_filter_events(pj_odds_api_get('/events', [
+        'sport' => $sport,
+        'from' => $window['from'],
+        'to' => $window['to'],
+        'status' => 'pending,live',
+        'limit' => 250,
+    ]));
+
+    $liveEvents = pj_odds_api_filter_events(pj_odds_api_get('/events/live', [
+        'sport' => $sport,
+    ]));
+
+    $eventsById = [];
+    foreach ([$todayEvents, $liveEvents] as $collection) {
+        foreach ($collection as $event) {
+            $eventId = (int) ($event['id'] ?? 0);
+            if ($eventId <= 0) {
+                continue;
+            }
+
+            $eventsById[$eventId] = $event;
+        }
+    }
+
+    return $eventsById;
+}
+
+function pj_odds_api_fetch_multi_odds(array $eventIds, array $bookmakers): array
+{
+    $oddsByEvent = [];
+
+    foreach (array_chunk(array_values($eventIds), 10) as $chunk) {
+        $payload = pj_odds_api_get('/odds/multi', [
+            'eventIds' => implode(',', $chunk),
+            'bookmakers' => implode(',', $bookmakers),
+        ]);
+
+        foreach ($payload as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $eventId = (int) ($entry['id'] ?? 0);
+            if ($eventId <= 0) {
+                continue;
+            }
+
+            $oddsByEvent[$eventId] = $entry;
+        }
+    }
+
+    return $oddsByEvent;
 }
 
 function pj_fetch_api_rows(): array
@@ -606,8 +952,9 @@ function pj_fetch_api_rows(): array
             'meta' => [
                 'stale' => false,
                 'configured' => false,
+                'from_cache' => false,
                 'fetched_at' => null,
-                'warning' => 'Modo manual ativo. Configure api.key em config.local.php para carregar odds da API.',
+                'warning' => 'Modo manual ativo. Configure api.key em config.local.php para carregar odds da Odds API.',
             ],
         ];
     }
@@ -624,110 +971,30 @@ function pj_fetch_api_rows(): array
             'meta' => [
                 'stale' => false,
                 'configured' => true,
+                'from_cache' => true,
                 'fetched_at' => $cache['fetched_at'] ?? null,
                 'warning' => null,
             ],
         ];
     }
 
-    $headers = [
-        'x-apisports-key' => (string) $config['api']['key'],
-        'Accept' => 'application/json',
-    ];
-    $baseUrl = rtrim((string) ($config['api']['base_url'] ?? ''), '/');
     $timezone = (string) ($config['api']['timezone'] ?? 'America/Sao_Paulo');
-    $today = (new DateTimeImmutable('now', new DateTimeZone($timezone)))->format('Y-m-d');
+    $bookmakers = pj_odds_api_bookmakers();
 
     try {
-        $liveFixtures = pj_http_json_all_pages($baseUrl . '/fixtures?live=all&timezone=' . rawurlencode($timezone), $headers);
-        $todayFixtures = pj_http_json_all_pages($baseUrl . '/fixtures?date=' . rawurlencode($today) . '&timezone=' . rawurlencode($timezone), $headers);
-        $liveOdds = pj_http_json_all_pages($baseUrl . '/odds/live', $headers);
-        $todayOdds = pj_http_json_all_pages($baseUrl . '/odds?date=' . rawurlencode($today), $headers);
-
-        $fixturesById = [];
-        foreach ([$todayFixtures, $liveFixtures] as $payload) {
-            foreach (($payload['response'] ?? []) as $fixture) {
-                $fixtureId = (int) ($fixture['fixture']['id'] ?? 0);
-                if ($fixtureId > 0) {
-                    $fixturesById[$fixtureId] = $fixture;
-                }
-            }
+        if ($bookmakers === []) {
+            throw new RuntimeException('Configure api.bookmakers em config.local.php para carregar odds da API.');
         }
 
-        $oddsByFixture = [];
-        foreach ([$todayOdds, $liveOdds] as $payload) {
-            foreach (($payload['response'] ?? []) as $entry) {
-                $fixtureId = (int) (($entry['fixture']['id'] ?? $entry['fixture_id'] ?? 0));
-                if ($fixtureId > 0) {
-                    $oddsByFixture[$fixtureId] = $entry;
-                }
-            }
-        }
+        $eventsById = pj_odds_api_fetch_events($timezone);
+        $oddsByEvent = $eventsById === [] ? [] : pj_odds_api_fetch_multi_odds(array_keys($eventsById), $bookmakers);
 
         $rows = [];
-        foreach ($fixturesById as $fixtureId => $fixture) {
-            $homeName = trim((string) ($fixture['teams']['home']['name'] ?? ''));
-            $awayName = trim((string) ($fixture['teams']['away']['name'] ?? ''));
-            if ($homeName === '' || $awayName === '') {
-                continue;
+        foreach ($eventsById as $eventId => $event) {
+            $eventRows = pj_build_rows_from_odds_event($event, $oddsByEvent[$eventId] ?? [], $timezone);
+            if ($eventRows !== []) {
+                array_push($rows, ...$eventRows);
             }
-
-            $bookmakerSelection = pj_select_bookmaker($oddsByFixture[$fixtureId] ?? [], $homeName, $awayName);
-            if ($bookmakerSelection === []) {
-                continue;
-            }
-
-            $homeFt = $bookmakerSelection['ft']['home'] ?? null;
-            $awayFt = $bookmakerSelection['ft']['away'] ?? null;
-            if (!is_float($homeFt) || !is_float($awayFt)) {
-                continue;
-            }
-
-            $scoreHt = pj_half_time_score($fixture);
-            $dateLabel = pj_format_kickoff_for_table(pj_fixture_date_iso($fixture), $timezone);
-            $status = pj_status_code($fixture);
-            $elapsed = pj_elapsed_minutes($fixture);
-            $league = trim((string) ($fixture['league']['name'] ?? ''));
-            $bookmakerName = (string) ($bookmakerSelection['bookmaker'] ?? '');
-            $kickoffAt = pj_fixture_date_iso($fixture);
-
-            $rows[] = [
-                'id' => 'api_' . $fixtureId . '_home',
-                'league' => $league,
-                'category' => pj_category_for_odd($homeFt),
-                'team' => $homeName,
-                'venue' => 'Casa',
-                'date' => $dateLabel,
-                'odd_ht' => isset($bookmakerSelection['ht']['home']) && is_float($bookmakerSelection['ht']['home']) ? (string) $bookmakerSelection['ht']['home'] : '',
-                'score_ht' => $scoreHt,
-                'odd_ft' => (string) $homeFt,
-                'opponent' => $awayName,
-                'source' => 'api',
-                'fixture_id' => $fixtureId,
-                'match_status' => $status,
-                'elapsed_min' => $elapsed,
-                'kickoff_at' => $kickoffAt,
-                'bookmaker' => $bookmakerName,
-            ];
-
-            $rows[] = [
-                'id' => 'api_' . $fixtureId . '_away',
-                'league' => $league,
-                'category' => pj_category_for_odd($awayFt),
-                'team' => $awayName,
-                'venue' => 'Fora',
-                'date' => $dateLabel,
-                'odd_ht' => isset($bookmakerSelection['ht']['away']) && is_float($bookmakerSelection['ht']['away']) ? (string) $bookmakerSelection['ht']['away'] : '',
-                'score_ht' => $scoreHt,
-                'odd_ft' => (string) $awayFt,
-                'opponent' => $homeName,
-                'source' => 'api',
-                'fixture_id' => $fixtureId,
-                'match_status' => $status,
-                'elapsed_min' => $elapsed,
-                'kickoff_at' => $kickoffAt,
-                'bookmaker' => $bookmakerName,
-            ];
         }
 
         usort($rows, static function (array $a, array $b): int {
@@ -748,17 +1015,19 @@ function pj_fetch_api_rows(): array
             'meta' => [
                 'stale' => false,
                 'configured' => true,
+                'from_cache' => false,
                 'fetched_at' => $snapshot['fetched_at'],
                 'warning' => null,
             ],
         ];
     } catch (Throwable $error) {
-        if (is_array($cache['rows'] ?? null)) {
+        if (is_array($cache['rows'] ?? null) && $cache['rows'] !== []) {
             return [
                 'rows' => $cache['rows'],
                 'meta' => [
                     'stale' => true,
                     'configured' => true,
+                    'from_cache' => true,
                     'fetched_at' => $cache['fetched_at'] ?? null,
                     'warning' => $error->getMessage(),
                 ],
@@ -770,6 +1039,7 @@ function pj_fetch_api_rows(): array
             'meta' => [
                 'stale' => true,
                 'configured' => true,
+                'from_cache' => false,
                 'fetched_at' => null,
                 'warning' => $error->getMessage(),
             ],

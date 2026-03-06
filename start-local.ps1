@@ -40,7 +40,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "Starting PriceJust local panel at $url" -ForegroundColor Green
 Write-Host 'Login inicial: admin / change-me' -ForegroundColor Yellow
-Write-Host 'Optional: configure api.key in price_data\config.local.php to enable live odds.' -ForegroundColor DarkYellow
+Write-Host 'Optional: configure api.key in price_data\config.local.php to enable Odds API live odds.' -ForegroundColor DarkYellow
 Write-Host 'Press Ctrl+C to stop the server.' -ForegroundColor Yellow
 
 Push-Location $appRoot

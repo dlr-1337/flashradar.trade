@@ -341,6 +341,28 @@ $appConfig = [
             width: 100%;
         }
 
+        .empty-state {
+            margin: 36px auto 0;
+            max-width: 640px;
+            padding: 24px 26px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: linear-gradient(180deg, rgba(255, 209, 26, 0.08), rgba(255, 255, 255, 0.02));
+            text-align: center;
+        }
+
+        .empty-state strong {
+            display: block;
+            font-size: 1rem;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .empty-state p {
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
         .league-section {
             margin-bottom: 40px;
             animation: fadeIn 0.4s ease;
@@ -1916,6 +1938,7 @@ $appConfig = [
         let LAST_API_META = {
             stale: false,
             configured: true,
+            from_cache: false,
             warning: null,
             fetched_at: null,
             refresh_seconds: APP_CONFIG.refreshSeconds || 60
@@ -2248,10 +2271,12 @@ $appConfig = [
         function getTimeLabel(row) {
             const status = String(row?.match_status || '').toUpperCase();
             const elapsed = getLiveElapsed(row);
+            if (status === 'LIVE') return 'Ao vivo';
             if (status === 'HT') return 'Intervalo';
             if (status === 'FT') return 'Encerrado';
             if (status === 'AET' || status === 'ET') return 'Prorrogacao';
             if (status === 'PEN') return 'Penaltis';
+            if (status === 'PST') return 'Adiado';
             if (status === 'NS' || status === 'TBD' || status === 'PST') return formatKickoffLabel(row?.kickoff_at);
             if (status === '1H') {
                 if (elapsed >= 45) return '45+';
@@ -2288,10 +2313,41 @@ $appConfig = [
             }
             const prefix = !configured
                 ? 'Painel em modo manual.'
-                : (LAST_API_META?.stale ? 'Usando cache local.' : 'Aviso da API.');
+                : (LAST_API_META?.from_cache
+                    ? 'Usando cache local.'
+                    : (LAST_API_META?.stale ? 'Falha ao consultar a API.' : 'Aviso da API.'));
             banner.textContent = `${prefix} ${warning}`;
             banner.style.display = 'block';
             banner.classList.toggle('stale', configured && !!LAST_API_META?.stale);
+        }
+
+        function getEmptyStateHtml() {
+            const totalRows = Array.isArray(TODOS_DADOS) ? TODOS_DADOS.length : 0;
+            const warning = String(LAST_API_META?.warning || '').trim();
+            const configured = LAST_API_META?.configured !== false;
+
+            let title = 'Nenhum dado encontrado.';
+            let description = 'Ajuste os filtros para exibir outros registros.';
+
+            if (totalRows === 0) {
+                if (warning) {
+                    title = 'Falha ao carregar dados da API.';
+                    description = 'Veja o aviso acima. O painel volta a exibir jogos quando a API responder novamente ou o cache local for atualizado.';
+                } else if (!configured) {
+                    title = 'Modo manual ativo.';
+                    description = 'Cadastre registros manualmente ou configure api.key em config.local.php para carregar odds da API.';
+                } else {
+                    title = 'Nenhum jogo disponivel agora.';
+                    description = 'A API nao retornou odds ao vivo nem partidas para hoje neste momento.';
+                }
+            }
+
+            return `
+                <div class="empty-state">
+                    <strong>${escapeHtml(title)}</strong>
+                    <p>${escapeHtml(description)}</p>
+                </div>
+            `;
         }
 
         function avgUnderOverByMean(values, mean) {
@@ -3252,6 +3308,13 @@ $appConfig = [
             }
         }
 
+        function supportsStatusFilter(row) {
+            const source = String(row?.source || 'manual').toLowerCase();
+            if (source === 'manual') return true;
+            const matchStatus = String(row?.match_status || '').toUpperCase();
+            return ['LIVE', 'HT', 'FT', '1H', '2H', 'AET', 'ET', 'PEN'].includes(matchStatus);
+        }
+
         function normalizeKey(s) {
             return normalizeSearch(s);
         }
@@ -3481,7 +3544,7 @@ $appConfig = [
                 const matchCat = catSet.size ? catSet.has(String(item.category || '').trim()) : true;
                 const matchVenue = venueFiltro ? String(item.venue || '') === venueFiltro : true;
                 let matchStatus = true;
-                if (statusFiltro) matchStatus = (calcularStatus(item.score_ht, item.venue) === statusFiltro);
+                if (statusFiltro) matchStatus = supportsStatusFilter(item) && (calcularStatus(item.score_ht, item.venue) === statusFiltro);
                 return matchBusca && matchLeague && matchCat && matchVenue && matchStatus;
             });
             updateShownCount(dadosFiltrados.length);
@@ -3496,7 +3559,7 @@ $appConfig = [
             CURRENT_RENDER_INDEX = 0;
             CURRENT_TBODY_REF = null;
             if (!dados || dados.length === 0) {
-                dashboard.innerHTML = '<p style="text-align:center; color: #444; margin-top:50px;">Nenhum dado encontrado.</p>';
+                dashboard.innerHTML = getEmptyStateHtml();
                 return;
             }
             const ligas = {};
@@ -3626,7 +3689,8 @@ $appConfig = [
             const isCasa = String(jogo.venue || '') === 'Casa';
             const myTeam = `<span class="team-active">${escapeHtml(jogo.team)}</span>`;
             const opponent = `<span class="team-opponent">${escapeHtml(jogo.opponent || 'Adversário')}</span>`;
-            const score = `<span class="score-box">${escapeHtml(jogo.score_ht)}</span>`;
+            const scoreLabel = String(jogo.score_ht || '').trim() || '--';
+            const score = `<span class="score-box">${escapeHtml(scoreLabel)}</span>`;
             const source = String(jogo.source || 'manual').toLowerCase();
             const sourcePill = `<span class="source-pill ${source === 'api' ? 'api' : 'manual'}">${source === 'api' ? 'API' : 'MANUAL'}</span>`;
             const matchDisplay = `
