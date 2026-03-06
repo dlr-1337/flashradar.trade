@@ -1,0 +1,2 @@
+Abra o arquivo start-local.bat com duplo clique.
+Se precisar de ajuda, consulte o README.md.
