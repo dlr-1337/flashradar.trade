@@ -33,6 +33,19 @@ function pj_storage_path(string $relative = ''): string
     return pj_root_path('storage' . ($relative !== '' ? DIRECTORY_SEPARATOR . $relative : ''));
 }
 
+function pj_file_override_path(string $key, string $default): string
+{
+    $overrides = $GLOBALS['__PJ_FILE_OVERRIDES'] ?? null;
+    if (is_array($overrides)) {
+        $candidate = $overrides[$key] ?? null;
+        if (is_string($candidate) && trim($candidate) !== '') {
+            return $candidate;
+        }
+    }
+
+    return $default;
+}
+
 function pj_read_json_file(string $file, mixed $default): mixed
 {
     if (!is_file($file)) {
@@ -354,17 +367,22 @@ function pj_require_auth_page(): void
 
 function pj_manual_file(): string
 {
-    return pj_storage_path('manual.json');
+    return pj_file_override_path('manual', pj_storage_path('manual.json'));
 }
 
 function pj_cache_file(): string
 {
-    return pj_storage_path('cache/dashboard.json');
+    return pj_file_override_path('cache', pj_storage_path('cache/dashboard.json'));
 }
 
 function pj_json_source_file(): string
 {
-    return pj_repo_path('dados.json');
+    return pj_file_override_path('json_source', pj_repo_path('dados.json'));
+}
+
+function pj_history_sync_state_file(): string
+{
+    return pj_file_override_path('history_sync_state', pj_storage_path('cache/history-sync.json'));
 }
 
 function pj_manual_rows(): array
@@ -632,6 +650,16 @@ function pj_has_api_key(): bool
 
 function pj_http_json(string $method, string $url, array $headers = []): array
 {
+    $override = $GLOBALS['__PJ_HTTP_JSON_OVERRIDE'] ?? null;
+    if (is_callable($override)) {
+        $result = $override($method, $url, $headers);
+        if (!is_array($result)) {
+            throw new RuntimeException('HTTP override must return an array payload.');
+        }
+
+        return $result;
+    }
+
     $headerLines = [];
     foreach ($headers as $name => $value) {
         $headerLines[] = $name . ': ' . $value;
@@ -1267,3 +1295,5 @@ function pj_fetch_api_rows(): array
         ];
     }
 }
+
+require_once __DIR__ . '/history_sync.php';

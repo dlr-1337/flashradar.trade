@@ -90,6 +90,8 @@ $appConfig = [
         .hdr-actions {
             display: flex;
             align-items: center;
+            justify-content: flex-end;
+            flex-wrap: wrap;
             gap: 10px;
         }
 
@@ -145,6 +147,60 @@ $appConfig = [
             transform: translateY(-1px);
             border-color: rgba(255, 255, 255, 0.18);
             color: #fff;
+        }
+
+        .btn-secondary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .sync-history-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .sync-status {
+            display: inline-flex;
+            align-items: center;
+            min-height: 32px;
+            padding: 0 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            white-space: nowrap;
+        }
+
+        .sync-status:empty {
+            display: none;
+        }
+
+        .sync-status.running {
+            color: var(--accent);
+            border-color: rgba(255, 209, 26, 0.26);
+            background: rgba(255, 209, 26, 0.08);
+        }
+
+        .sync-status.completed {
+            color: var(--success);
+            border-color: rgba(169, 255, 143, 0.28);
+            background: rgba(169, 255, 143, 0.08);
+        }
+
+        .sync-status.error {
+            color: var(--danger);
+            border-color: rgba(255, 120, 90, 0.28);
+            background: rgba(255, 120, 90, 0.08);
+        }
+
+        .sync-status.warning {
+            color: var(--accent);
+            border-color: rgba(255, 209, 26, 0.22);
+            background: rgba(255, 209, 26, 0.06);
         }
 
         .top-banner {
@@ -684,6 +740,21 @@ $appConfig = [
         }
 
         @media(max-width:700px) {
+            header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            .hdr-actions {
+                width: 100%;
+                justify-content: flex-start;
+            }
+            .sync-history-controls {
+                width: 100%;
+            }
+            .sync-status {
+                white-space: normal;
+            }
             .filters-bar {
                 flex-direction: column;
                 align-items: stretch;
@@ -806,6 +877,12 @@ $appConfig = [
             background: var(--blue);
             color: #111;
             border-color: transparent;
+        }
+
+        .source-pill.manual {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-main);
+            border-color: rgba(255, 255, 255, 0.14);
         }
 
         .time-pill {
@@ -1749,7 +1826,11 @@ $appConfig = [
             <h1>Price<span>Just</span> Local</h1>
         </div>
         <div class="hdr-actions">
-            <span class="user-chip">Sessão: <?= htmlspecialchars((string) ($appConfig['username'] ?? 'admin'), ENT_QUOTES, 'UTF-8') ?></span>
+            <span class="user-chip">Sessao: <?= htmlspecialchars((string) ($appConfig['username'] ?? 'admin'), ENT_QUOTES, 'UTF-8') ?></span>
+            <div class="sync-history-controls">
+                <button class="btn-secondary" type="button" id="syncHistoryBtn">Sincronizar historico</button>
+                <span class="sync-status" id="syncHistoryStatus" aria-live="polite"></span>
+            </div>
             <button class="btn-secondary" type="button" onclick="abrirCustomLP()">Custom LP</button>
             <button class="btn-add" type="button" onclick="abrirModal()">
         <span>+</span> Novo
@@ -1808,6 +1889,14 @@ $appConfig = [
         <option value="">Casa e Fora</option>
         <option value="Casa">Jogando em Casa</option>
         <option value="Fora">Jogando Fora</option>
+      </select>
+
+            <select id="filterSource" class="filter-select">
+        <option value="">Todas as fontes</option>
+        <option value="api">So API</option>
+        <option value="json">So JSON</option>
+        <option value="api+json">API + JSON</option>
+        <option value="manual">So manual</option>
       </select>
 
             <button type="button" class="btn-clear" onclick="limparFiltros()">Limpar</button>
@@ -2079,6 +2168,8 @@ $appConfig = [
             refresh_seconds: APP_CONFIG.refreshSeconds || 60
         };
         let PRICE_LINE_GROUP_STEP = 1;
+        let IS_SYNCING_HISTORY = false;
+        let LAST_SYNC_HISTORY_PAYLOAD = null;
 
         let RENDER_QUEUE = [];
         let CURRENT_RENDER_INDEX = 0;
@@ -2540,6 +2631,147 @@ $appConfig = [
             banner.textContent = `${prefix} ${warning}`;
             banner.style.display = 'block';
             banner.classList.toggle('stale', configured && !!LAST_API_META?.stale);
+        }
+
+        function getSyncHistoryCounts(payload) {
+            const counts = payload && typeof payload === 'object' && payload.counts && typeof payload.counts === 'object'
+                ? payload.counts
+                : {};
+            return {
+                inserted: Number(counts.inserted || 0),
+                updated: Number(counts.updated || 0),
+                skipped: Number(counts.skipped || 0),
+                preserved: Number(counts.preserved || 0),
+                total_json_rows: Number(counts.total_json_rows || 0)
+            };
+        }
+
+        function formatSyncCounts(counts) {
+            return `+${counts.inserted} ~${counts.updated} -${counts.skipped} | total ${counts.total_json_rows}`;
+        }
+
+        function formatSyncProgress(progress) {
+            const current = Number(progress?.current || 0);
+            const total = Number(progress?.total || 0);
+            const percent = Number(progress?.percent || 0);
+            if (total <= 0) return '0/0 (0%)';
+            return `${current}/${total} (${percent}%)`;
+        }
+
+        function setSyncHistoryUi(payload = LAST_SYNC_HISTORY_PAYLOAD) {
+            const button = document.getElementById('syncHistoryBtn');
+            const statusEl = document.getElementById('syncHistoryStatus');
+            if (!button || !statusEl) return;
+
+            const state = String(payload?.state || '').toLowerCase();
+            const running = IS_SYNCING_HISTORY || state === 'running';
+            const counts = getSyncHistoryCounts(payload);
+            const progress = payload?.progress && typeof payload.progress === 'object' ? payload.progress : {};
+            const details = [];
+            let statusText = '';
+
+            statusEl.className = 'sync-status';
+
+            if (running) {
+                statusText = `Historico ${formatSyncProgress(progress)}`;
+                statusEl.classList.add('running');
+                details.push(formatSyncCounts(counts));
+                if (progress.current_league) details.push(String(progress.current_league));
+                if (Number(progress.pending_events || 0) > 0) details.push(`pendentes ${Number(progress.pending_events || 0)}`);
+            } else if (state === 'completed') {
+                statusText = `Concluido ${formatSyncCounts(counts)}`;
+                statusEl.classList.add('completed');
+            } else if (state === 'error') {
+                statusText = String(payload?.warning || payload?.message || 'Falha na sincronizacao do historico.');
+                statusEl.classList.add('error');
+            } else if (payload?.warning) {
+                statusText = String(payload.warning);
+                statusEl.classList.add('warning');
+            }
+
+            if (payload?.message) details.push(String(payload.message));
+            if (payload?.warning) details.push(String(payload.warning));
+
+            statusEl.textContent = statusText;
+            statusEl.title = details.join(' | ');
+            button.disabled = running;
+            button.textContent = running ? 'Sincronizando...' : 'Sincronizar historico';
+            button.setAttribute('aria-busy', running ? 'true' : 'false');
+        }
+
+        async function syncHistory(reset = true) {
+            if (IS_SYNCING_HISTORY) return;
+
+            const emptyProgress = {
+                current: 0,
+                total: 0,
+                percent: 0,
+                pending_events: 0,
+                current_league: null,
+                current_range: null
+            };
+            const previousPayload = LAST_SYNC_HISTORY_PAYLOAD;
+            IS_SYNCING_HISTORY = true;
+            LAST_SYNC_HISTORY_PAYLOAD = {
+                ok: true,
+                state: 'running',
+                message: 'Preparando sincronizacao do historico...',
+                progress: previousPayload?.progress || emptyProgress,
+                counts: getSyncHistoryCounts(previousPayload)
+            };
+            setSyncHistoryUi();
+
+            let nextReset = reset;
+            try {
+                while (true) {
+                    const response = await fetch('api.php?action=sync_history', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            reset: nextReset
+                        })
+                    });
+                    const payload = await response.json().catch(() => null);
+                    LAST_SYNC_HISTORY_PAYLOAD = payload && typeof payload === 'object'
+                        ? payload
+                        : {
+                            ok: false,
+                            state: 'error',
+                            message: 'Resposta invalida do backend.',
+                            warning: 'Resposta invalida do backend.',
+                            progress: emptyProgress,
+                            counts: getSyncHistoryCounts(previousPayload)
+                        };
+                    setSyncHistoryUi();
+
+                    const payloadState = String(LAST_SYNC_HISTORY_PAYLOAD?.state || '').toLowerCase();
+                    if (!response.ok || LAST_SYNC_HISTORY_PAYLOAD.ok !== true || payloadState === 'error') {
+                        break;
+                    }
+
+                    if (payloadState === 'completed') {
+                        await carregarEstudos();
+                        break;
+                    }
+
+                    nextReset = false;
+                }
+            } catch (err) {
+                console.error(err);
+                LAST_SYNC_HISTORY_PAYLOAD = {
+                    ok: false,
+                    state: 'error',
+                    message: 'Falha ao sincronizar o historico.',
+                    warning: 'Falha ao sincronizar o historico.',
+                    progress: emptyProgress,
+                    counts: getSyncHistoryCounts(previousPayload)
+                };
+            } finally {
+                IS_SYNCING_HISTORY = false;
+                setSyncHistoryUi();
+            }
         }
 
         function getEmptyStateHtml() {
@@ -3560,6 +3792,13 @@ $appConfig = [
             return ['LIVE', 'HT', 'FT', '1H', '2H', 'AET', 'ET', 'PEN'].includes(matchStatus);
         }
 
+        function matchesSourceFilter(row, sourceFilter) {
+            const source = String(row?.source || 'manual').toLowerCase();
+            if (!sourceFilter) return true;
+            if (sourceFilter === 'api+json') return source === 'api' || source === 'json';
+            return source === sourceFilter;
+        }
+
         function normalizeKey(s) {
             return normalizeSearch(s);
         }
@@ -3774,6 +4013,7 @@ $appConfig = [
             document.getElementById('filterSearch').value = '';
             document.getElementById('filterStatus').value = '';
             document.getElementById('filterVenue').value = '';
+            document.getElementById('filterSource').value = '';
             ACTIVE_FILTERS.league.clear();
             ACTIVE_FILTERS.category.clear();
             const ligas = getLeagueOptionsFromData();
@@ -3798,6 +4038,7 @@ $appConfig = [
             const busca = document.getElementById('filterSearch').value.toLowerCase();
             const statusFiltro = document.getElementById('filterStatus').value;
             const venueFiltro = document.getElementById('filterVenue').value;
+            const sourceFiltro = document.getElementById('filterSource').value;
             const leagueSet = ACTIVE_FILTERS.league;
             const catSet = ACTIVE_FILTERS.category;
             const dadosFiltrados = (TODOS_DADOS || []).filter(item => {
@@ -3806,9 +4047,10 @@ $appConfig = [
                 const matchLeague = leagueSet.size ? leagueSet.has(String(item.league || '').trim()) : true;
                 const matchCat = catSet.size ? catSet.has(String(item.category || '').trim()) : true;
                 const matchVenue = venueFiltro ? String(item.venue || '') === venueFiltro : true;
+                const matchSource = matchesSourceFilter(item, sourceFiltro);
                 let matchStatus = true;
                 if (statusFiltro) matchStatus = supportsStatusFilter(item) && (calcularStatus(item.score_ht, item.venue) === statusFiltro);
-                return matchBusca && matchLeague && matchCat && matchVenue && matchStatus;
+                return matchBusca && matchLeague && matchCat && matchVenue && matchSource && matchStatus;
             });
             updateShownCount(dadosFiltrados.length);
             atualizarResumoGlobal(dadosFiltrados);
@@ -4347,6 +4589,7 @@ $appConfig = [
 
         document.addEventListener("DOMContentLoaded", () => {
             carregarEstudos();
+            setSyncHistoryUi();
 
             const lastDate = localStorage.getItem('fpd_last_date');
             if (lastDate) {
@@ -4368,6 +4611,8 @@ $appConfig = [
             document.getElementById('filterSearch').addEventListener('input', filtrarDashboard);
             document.getElementById('filterStatus').addEventListener('change', filtrarDashboard);
             document.getElementById('filterVenue').addEventListener('change', filtrarDashboard);
+            document.getElementById('filterSource').addEventListener('change', filtrarDashboard);
+            document.getElementById('syncHistoryBtn').addEventListener('click', () => syncHistory(true));
             const plGroupStep = document.getElementById('plGroupStep');
             const savedPlGroupStep = localStorage.getItem('pj_price_line_group_step');
             PRICE_LINE_GROUP_STEP = sanitizePriceLineGroupStep(savedPlGroupStep || plGroupStep?.value || '1');

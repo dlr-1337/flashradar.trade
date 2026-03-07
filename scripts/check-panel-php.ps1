@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $phpLocal = Join-Path $repoRoot 'tools\php\php.exe'
@@ -14,7 +14,8 @@ $required = @(
     (Join-Path $repoRoot 'price_data\login.php'),
     (Join-Path $repoRoot 'price_data\api.php'),
     (Join-Path $repoRoot 'scripts\check-bootstrap-upstream-errors.php'),
-    (Join-Path $repoRoot 'scripts\check-bootstrap-odds-api.php')
+    (Join-Path $repoRoot 'scripts\check-bootstrap-odds-api.php'),
+    (Join-Path $repoRoot 'scripts\check-bootstrap-history-sync.php')
 )
 
 foreach ($file in $required) {
@@ -38,6 +39,11 @@ if ($LASTEXITCODE -ne 0) {
 & $php (Join-Path $repoRoot 'scripts\check-bootstrap-odds-api.php') | Out-Host
 if ($LASTEXITCODE -ne 0) {
     Write-Error 'Bootstrap Odds API checks failed.'
+}
+
+& $php (Join-Path $repoRoot 'scripts\check-bootstrap-history-sync.php') | Out-Host
+if ($LASTEXITCODE -ne 0) {
+    Write-Error 'Bootstrap history sync checks failed.'
 }
 
 Write-Host 'PHP entrypoints linted successfully.'

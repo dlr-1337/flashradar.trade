@@ -53,6 +53,14 @@ if ($method === 'POST' && $action === 'logout') {
     ]);
 }
 
+if ($method === 'POST' && $action === 'sync_history') {
+    pj_require_auth_json();
+    $payload = pj_request_body();
+    $reset = (bool) ($payload['reset'] ?? false);
+    $response = pj_history_sync_step($reset);
+    pj_json_response($response, ($response['ok'] ?? false) ? 200 : 500);
+}
+
 if ($method === 'GET') {
     $apiRows = pj_fetch_api_rows();
     $jsonRows = pj_json_source_rows();
