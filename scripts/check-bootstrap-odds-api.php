@@ -22,11 +22,28 @@ function assert_true(bool $condition, string $message): void
     }
 }
 
+function assert_contains(string $needle, string $haystack, string $message): void
+{
+    if (!str_contains($haystack, $needle)) {
+        throw new RuntimeException(
+            $message
+            . ' Missing fragment: ' . var_export($needle, true)
+            . ' Actual: ' . var_export($haystack, true)
+        );
+    }
+}
+
 $GLOBALS['__PJ_CONFIG_OVERRIDE'] = [
     'api' => [
-        'bookmakers' => ['Bet365', 'Betano', '1xbet'],
+        'bookmakers' => ['Betfai Excchange', 'Bet365', 'Bet365'],
     ],
 ];
+
+assert_same(
+    ['Betfair Exchange', 'Bet365'],
+    pj_odds_api_bookmakers(),
+    'Should canonicalize bookmaker aliases and dedupe them.'
+);
 
 $event = [
     'id' => 68048762,
@@ -160,5 +177,13 @@ assert_same(
     pj_upstream_error_message(['error' => 'Missing bookmakers']),
     'Should read Odds API top-level error messages.'
 );
+
+$formattedWarning = pj_format_api_fetch_warning(
+    new RuntimeException("Upstream API error: Access denied. You're allowed max 2 bookmakers. Allowed: Betfair Exchange, Bet365."),
+    ['Betfai Excchange']
+);
+assert_contains('price_data/config.local.php', $formattedWarning, 'Should point to the local config file when bookmaker access is denied.');
+assert_contains('[Betfair Exchange]', $formattedWarning, 'Should show the normalized configured bookmaker list in the warning.');
+assert_contains('Access denied', $formattedWarning, 'Should preserve the upstream error detail in the warning.');
 
 echo "Bootstrap Odds API checks passed.\n";

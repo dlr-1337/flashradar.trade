@@ -802,6 +802,12 @@ $appConfig = [
             border-color: transparent;
         }
 
+        .source-pill.json {
+            background: var(--blue);
+            color: #111;
+            border-color: transparent;
+        }
+
         .time-pill {
             display: inline-flex;
             align-items: center;
@@ -1995,7 +2001,7 @@ $appConfig = [
                         <button type="button" class="ms-btn" data-ms="category" aria-haspopup="listbox" aria-expanded="false">
               <span class="ms-label">Categorias</span>
               <span class="ms-summary">Todas</span>
-              <span class="ms-caret">â–¾</span>
+              <span class="ms-caret">v</span>
             </button>
                         <div class="ms-panel" role="listbox" aria-label="Selecionar categorias da Linha de preço">
                             <div class="ms-actions">
@@ -2499,7 +2505,9 @@ $appConfig = [
                 if (elapsed >= 90) return '90+';
                 return formatCountdown(90, elapsed);
             }
-            return row?.source === 'manual' ? 'Manual' : '--';
+            if (row?.source === 'manual') return 'Manual';
+            if (row?.source === 'json') return 'Arquivo';
+            return '--';
         }
 
         function updateRenderedTimers() {
@@ -2525,10 +2533,10 @@ $appConfig = [
                 return;
             }
             const prefix = !configured
-                ? 'Painel em modo manual.'
+                ? 'Painel em modo local.'
                 : (LAST_API_META?.from_cache
                     ? 'Usando cache local.'
-                    : (LAST_API_META?.stale ? 'Falha ao consultar a API.' : 'Aviso da API.'));
+                    : (LAST_API_META?.stale ? 'Falha ao carregar dados.' : 'Aviso do painel.'));
             banner.textContent = `${prefix} ${warning}`;
             banner.style.display = 'block';
             banner.classList.toggle('stale', configured && !!LAST_API_META?.stale);
@@ -2544,14 +2552,14 @@ $appConfig = [
 
             if (totalRows === 0) {
                 if (warning) {
-                    title = 'Falha ao carregar dados da API.';
-                    description = 'Veja o aviso acima. O painel volta a exibir jogos quando a API responder novamente ou o cache local for atualizado.';
+                    title = 'Falha ao carregar dados do painel.';
+                    description = 'Veja o aviso acima. O painel volta a exibir registros quando as fontes locais ou a API estiverem disponiveis.';
                 } else if (!configured) {
-                    title = 'Modo manual ativo.';
-                    description = 'Cadastre registros manualmente ou configure api.key em config.local.php para carregar odds da API.';
+                    title = 'Modo local ativo.';
+                    description = 'Cadastre registros manualmente, mantenha dados.json disponivel ou configure api.key em config.local.php.';
                 } else {
                     title = 'Nenhum jogo disponivel agora.';
-                    description = 'A API nao retornou odds ao vivo nem partidas para hoje neste momento.';
+                    description = 'Nenhuma fonte retornou partidas para exibir neste momento.';
                 }
             }
 
@@ -3947,7 +3955,10 @@ $appConfig = [
             const scoreLabel = String(jogo.score_ht || '').trim() || '--';
             const score = `<span class="score-box">${escapeHtml(scoreLabel)}</span>`;
             const source = String(jogo.source || 'manual').toLowerCase();
-            const sourcePill = `<span class="source-pill ${source === 'api' ? 'api' : 'manual'}">${source === 'api' ? 'API' : 'MANUAL'}</span>`;
+            const sourceClass = source === 'api' ? 'api' : (source === 'json' ? 'json' : 'manual');
+            const sourceLabel = source === 'api' ? 'API' : (source === 'json' ? 'JSON' : 'MANUAL');
+            const readonlyLabel = source === 'json' ? 'JSON' : 'API';
+            const sourcePill = `<span class="source-pill ${sourceClass}">${sourceLabel}</span>`;
             const matchDisplay = `
                 <div class="match-meta">
                     ${isCasa ? `${myTeam} ${score} ${opponent}` : `${opponent} ${score} ${myTeam}`}
@@ -3990,6 +4001,13 @@ $appConfig = [
         : ``
     }
   `;
+            if (!canEditRow && canManage) {
+                const readonlyBtn = tr.querySelector('.row-btn.edit[disabled]');
+                if (readonlyBtn) {
+                    readonlyBtn.title = 'Linha somente leitura';
+                    readonlyBtn.textContent = readonlyLabel;
+                }
+            }
             return tr;
         }
 
@@ -4115,7 +4133,7 @@ $appConfig = [
             if (!isLogged()) return;
             const row = findRowById(id);
             if (!row) return alert("Registro não encontrado.");
-            if (String(row.source || 'manual') !== 'manual') return alert("Linhas da API são somente leitura.");
+            if (String(row.source || 'manual') !== 'manual') return alert("Linhas de API e arquivo sao somente leitura.");
             document.getElementById('editId').value = String(id);
             document.getElementById('editLeague').value = String(row.league || '');
             document.getElementById('editCategory').value = String(row.category || 'Jogo parelho');
@@ -4131,7 +4149,7 @@ $appConfig = [
             if (!isLogged()) return;
             const row = findRowById(id);
             if (!row) return alert("Registro não encontrado.");
-            if (String(row.source || 'manual') !== 'manual') return alert("Linhas da API são somente leitura.");
+            if (String(row.source || 'manual') !== 'manual') return alert("Linhas de API e arquivo sao somente leitura.");
             const ok = confirm(`Excluir este registro?\n\n${row.team || ''} • ${row.league || ''} • ${row.date || ''}`);
             if (!ok) return;
             try {

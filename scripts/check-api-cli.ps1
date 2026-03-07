@@ -50,4 +50,12 @@ if ($null -eq $listJson.rows) {
     Write-Error 'List endpoint did not return rows.'
 }
 
+$dadosFile = Join-Path $repoRoot 'dados.json'
+if (Test-Path $dadosFile) {
+    $jsonRows = @($listJson.rows | Where-Object { $_.source -eq 'json' })
+    if ($jsonRows.Count -eq 0) {
+        Write-Error 'List endpoint did not expose rows from dados.json.'
+    }
+}
+
 Write-Host 'API CLI smoke checks passed.'

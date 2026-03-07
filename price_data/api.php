@@ -55,13 +55,19 @@ if ($method === 'POST' && $action === 'logout') {
 
 if ($method === 'GET') {
     $apiRows = pj_fetch_api_rows();
+    $jsonRows = pj_json_source_rows();
     $manualRows = pj_manual_rows();
-    $allRows = array_values(array_merge($apiRows['rows'], $manualRows));
+    $allRows = pj_sort_dashboard_rows(array_merge($apiRows['rows'], $jsonRows['rows'], $manualRows));
+    $warning = pj_merge_warnings([
+        $apiRows['meta']['warning'] ?? null,
+        $jsonRows['warning'] ?? null,
+    ]);
 
     pj_json_response([
         'ok' => true,
         'rows' => $allRows,
         'meta' => array_merge($apiRows['meta'], [
+            'warning' => $warning,
             'refresh_seconds' => (int) (pj_config()['dashboard']['refresh_seconds'] ?? 60),
             'authenticated' => pj_is_authenticated(),
         ]),

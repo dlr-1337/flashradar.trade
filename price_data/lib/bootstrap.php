@@ -182,7 +182,7 @@ function pj_normalize_bookmaker_names(mixed $bookmakers): array
 {
     $normalized = [];
     foreach ((array) $bookmakers as $bookmaker) {
-        $name = trim((string) $bookmaker);
+        $name = pj_canonical_bookmaker_name(trim((string) $bookmaker));
         if ($name === '') {
             continue;
         }
@@ -191,6 +191,60 @@ function pj_normalize_bookmaker_names(mixed $bookmakers): array
     }
 
     return array_values(array_unique($normalized));
+}
+
+function pj_canonical_bookmaker_name(string $name): string
+{
+    $trimmed = trim($name);
+    if ($trimmed === '') {
+        return '';
+    }
+
+    $collapsed = preg_replace('/[^a-z0-9]+/', '', strtolower($trimmed));
+    if (!is_string($collapsed) || $collapsed === '') {
+        return $trimmed;
+    }
+
+    if ($collapsed === 'bet365') {
+        return 'Bet365';
+    }
+
+    if ($collapsed === 'betfairexchange' || levenshtein($collapsed, 'betfairexchange') <= 2) {
+        return 'Betfair Exchange';
+    }
+
+    return $trimmed;
+}
+
+function pj_format_configured_bookmakers(array $bookmakers): string
+{
+    $normalized = pj_normalize_bookmaker_names($bookmakers);
+    if ($normalized === []) {
+        return '[]';
+    }
+
+    return '[' . implode(', ', $normalized) . ']';
+}
+
+function pj_format_api_fetch_warning(Throwable $error, array $bookmakers): string
+{
+    $message = trim($error->getMessage());
+    if ($message === '') {
+        return 'Falha ao consultar a Odds API.';
+    }
+
+    $normalized = strtolower($message);
+    $isBookmakerAccessIssue = str_contains($normalized, 'access denied')
+        && str_contains($normalized, 'bookmaker');
+
+    if ($isBookmakerAccessIssue) {
+        return 'Falha ao consultar a Odds API com api.bookmakers em price_data/config.local.php = '
+            . pj_format_configured_bookmakers($bookmakers)
+            . '. Ajuste essa lista para casas permitidas pela sua conta. Detalhe do upstream: '
+            . $message;
+    }
+
+    return $message;
 }
 
 function pj_config(): array
@@ -308,6 +362,11 @@ function pj_cache_file(): string
     return pj_storage_path('cache/dashboard.json');
 }
 
+function pj_json_source_file(): string
+{
+    return pj_repo_path('dados.json');
+}
+
 function pj_manual_rows(): array
 {
     $rows = pj_read_json_file(pj_manual_file(), []);
@@ -354,6 +413,133 @@ function pj_normalize_manual_row(array $row): array
     ];
 }
 
+function pj_json_source_rows(): array
+{
+    $file = pj_json_source_file();
+    if (!is_file($file)) {
+        return [
+            'rows' => [],
+            'warning' => 'Arquivo dados.json nao encontrado na raiz do projeto.',
+        ];
+    }
+
+    $raw = file_get_contents($file);
+    if ($raw === false) {
+        return [
+            'rows' => [],
+            'warning' => 'Nao foi possivel ler o arquivo dados.json.',
+        ];
+    }
+
+    if (trim($raw) === '') {
+        return [
+            'rows' => [],
+            'warning' => 'Arquivo dados.json esta vazio.',
+        ];
+    }
+
+    $decoded = json_decode($raw, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        return [
+            'rows' => [],
+            'warning' => 'Arquivo dados.json invalido: ' . json_last_error_msg() . '.',
+        ];
+    }
+
+    if (!is_array($decoded)) {
+        return [
+            'rows' => [],
+            'warning' => 'Arquivo dados.json deve conter uma lista de registros.',
+        ];
+    }
+
+    if ($decoded === []) {
+        return [
+            'rows' => [],
+            'warning' => 'Arquivo dados.json nao contem registros.',
+        ];
+    }
+
+    $rows = [];
+    foreach ($decoded as $index => $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $rows[] = pj_normalize_json_source_row($row, (int) $index);
+    }
+
+    if ($rows === [] && $decoded !== []) {
+        return [
+            'rows' => [],
+            'warning' => 'Arquivo dados.json nao contem registros validos.',
+        ];
+    }
+
+    return [
+        'rows' => $rows,
+        'warning' => null,
+    ];
+}
+
+function pj_normalize_json_source_row(array $row, int $index): array
+{
+    $rawId = trim((string) ($row['id'] ?? ''));
+    if ($rawId === '') {
+        $signature = implode('|', [
+            (string) $index,
+            trim((string) ($row['league'] ?? '')),
+            trim((string) ($row['category'] ?? '')),
+            trim((string) ($row['team'] ?? '')),
+            trim((string) ($row['venue'] ?? '')),
+            trim((string) ($row['date'] ?? '')),
+            trim((string) ($row['score_ht'] ?? '')),
+            pj_string_number_or_empty($row['odd_ht'] ?? ''),
+            pj_string_number_or_empty($row['odd_ft'] ?? ''),
+        ]);
+        $rawId = substr(sha1($signature), 0, 20);
+    }
+
+    $category = trim((string) ($row['category'] ?? ''));
+    $oddFt = pj_string_number_or_empty($row['odd_ft'] ?? '');
+    if ($category === '' && $oddFt !== '' && is_numeric($oddFt)) {
+        $category = pj_category_for_odd((float) $oddFt);
+    }
+
+    $fixtureId = $row['fixture_id'] ?? null;
+    if ($fixtureId !== null && !is_scalar($fixtureId)) {
+        $fixtureId = null;
+    }
+
+    $elapsedMin = $row['elapsed_min'] ?? null;
+    if ($elapsedMin !== null && !is_numeric($elapsedMin)) {
+        $elapsedMin = null;
+    }
+
+    $kickoffAt = trim((string) ($row['kickoff_at'] ?? ''));
+    $bookmaker = trim((string) ($row['bookmaker'] ?? ''));
+    $matchStatus = trim((string) ($row['match_status'] ?? 'FILE'));
+
+    return [
+        'id' => 'json_' . $rawId,
+        'league' => trim((string) ($row['league'] ?? '')),
+        'category' => $category,
+        'team' => trim((string) ($row['team'] ?? '')),
+        'venue' => trim((string) ($row['venue'] ?? '')),
+        'date' => trim((string) ($row['date'] ?? '')),
+        'odd_ht' => pj_string_number_or_empty($row['odd_ht'] ?? ''),
+        'score_ht' => trim((string) ($row['score_ht'] ?? '')),
+        'odd_ft' => $oddFt,
+        'opponent' => trim((string) ($row['opponent'] ?? '')),
+        'source' => 'json',
+        'fixture_id' => $fixtureId,
+        'match_status' => $matchStatus !== '' ? $matchStatus : 'FILE',
+        'elapsed_min' => $elapsedMin !== null ? (float) $elapsedMin : null,
+        'kickoff_at' => $kickoffAt !== '' ? $kickoffAt : null,
+        'bookmaker' => $bookmaker !== '' ? $bookmaker : null,
+    ];
+}
+
 function pj_string_number_or_empty(mixed $value): string
 {
     if ($value === null) {
@@ -383,6 +569,39 @@ function pj_validate_manual_payload(array $payload): array
     }
 
     return pj_normalize_manual_row($payload);
+}
+
+function pj_merge_warnings(array $warnings): ?string
+{
+    $normalized = [];
+    foreach ($warnings as $warning) {
+        $text = trim((string) $warning);
+        if ($text === '') {
+            continue;
+        }
+
+        $normalized[] = $text;
+    }
+
+    if ($normalized === []) {
+        return null;
+    }
+
+    return implode(' ', array_values(array_unique($normalized)));
+}
+
+function pj_sort_dashboard_rows(array $rows): array
+{
+    usort($rows, static function (array $a, array $b): int {
+        return strcmp((string) ($a['league'] ?? ''), (string) ($b['league'] ?? ''))
+            ?: strcmp((string) ($a['category'] ?? ''), (string) ($b['category'] ?? ''))
+            ?: strcmp((string) ($a['team'] ?? ''), (string) ($b['team'] ?? ''))
+            ?: strcmp((string) ($a['venue'] ?? ''), (string) ($b['venue'] ?? ''))
+            ?: strcmp((string) ($a['source'] ?? ''), (string) ($b['source'] ?? ''))
+            ?: strcmp((string) ($a['id'] ?? ''), (string) ($b['id'] ?? ''));
+    });
+
+    return array_values($rows);
 }
 
 function pj_category_for_odd(float $oddFt): string
@@ -1021,6 +1240,8 @@ function pj_fetch_api_rows(): array
             ],
         ];
     } catch (Throwable $error) {
+        $warning = pj_format_api_fetch_warning($error, $bookmakers);
+
         if (is_array($cache['rows'] ?? null) && $cache['rows'] !== []) {
             return [
                 'rows' => $cache['rows'],
@@ -1029,7 +1250,7 @@ function pj_fetch_api_rows(): array
                     'configured' => true,
                     'from_cache' => true,
                     'fetched_at' => $cache['fetched_at'] ?? null,
-                    'warning' => $error->getMessage(),
+                    'warning' => $warning,
                 ],
             ];
         }
@@ -1041,7 +1262,7 @@ function pj_fetch_api_rows(): array
                 'configured' => true,
                 'from_cache' => false,
                 'fetched_at' => null,
-                'warning' => $error->getMessage(),
+                'warning' => $warning,
             ],
         ];
     }
