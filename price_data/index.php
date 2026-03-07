@@ -2348,6 +2348,9 @@ $appConfig = [
                 const bucket = line.slice(i, i + groupStep);
                 const first = bucket[0];
                 const last = bucket[bucket.length - 1];
+                const groupedOdd = groupStep > 1 && Number.isFinite(Number(first?.originalOdd))
+                    ? Number(first.originalOdd)
+                    : Number(first?.odd);
                 const tickValues = bucket
                     .map((row) => Number(row?.tickPerMin))
                     .filter((value) => Number.isFinite(value));
@@ -2356,6 +2359,7 @@ $appConfig = [
                     : null;
                 grouped.push({
                     ...first,
+                    odd: groupedOdd,
                     tickPerMin,
                     minuteStart: first.minute,
                     minuteEnd: last.minute,
@@ -2410,6 +2414,7 @@ $appConfig = [
                 out.push({
                     minute: m,
                     odd: tick,
+                    originalOdd: tick,
                     tickPerMin: null
                 });
             }
@@ -2434,6 +2439,7 @@ $appConfig = [
                 out.push({
                     minute: m,
                     odd,
+                    originalOdd: odd,
                     tickPerMin: null
                 });
             }
