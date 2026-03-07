@@ -441,10 +441,6 @@ $appConfig = [
             width: 10%;
         }
 
-        .col-pay {
-            width: 14%;
-        }
-
         .col-actions {
             width: 14%;
         }
@@ -747,16 +743,10 @@ $appConfig = [
             .row-actions .row-btn {
                 height: 30px;
             }
-            .data-table td[data-label="Pagamento / Min"],
             .data-table td[data-label="Ações"] {
                 flex-direction: column;
                 align-items: stretch;
                 gap: 8px;
-            }
-            .data-table td[data-label="Pagamento / Min"] .metric-stack {
-                width: 100%;
-                align-items: flex-end;
-                text-align: right;
             }
             .data-table td[data-label="Ações"] .row-actions {
                 width: 100%;
@@ -825,29 +815,12 @@ $appConfig = [
             font-weight: 700;
         }
 
-        .metric-stack {
-            display: inline-flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 4px;
-            line-height: 1.1;
-        }
-
-        .metric-main {
-            font-weight: 700;
-        }
-
-        .metric-sub {
-            font-size: 0.76rem;
-            color: var(--text-muted);
-        }
-
         .price-line-modal {
             --pl-cell-min-width: 14.25rem;
             --pl-minute-width: 2.15rem;
             --pl-uf-width: 3.95rem;
             --pl-odd-width: 2.5rem;
-            --pl-tkm-width: 5.1rem;
+            --pl-tkm-width: 5.85rem;
             max-width: 920px;
             width: min(calc(100vw - 12px), 920px);
             padding: 16px 12px 14px;
@@ -2464,7 +2437,7 @@ $appConfig = [
         }
 
         function formatTickPerMinDisplay(v) {
-            return (v == null || !Number.isFinite(v)) ? '—' : Number(v).toFixed(3).replace('.', ',');
+            return (v == null || !Number.isFinite(v)) ? '—' : `${(Number(v) * 100).toFixed(2).replace('.', ',')}%`;
         }
 
         function fmtTickPerMin(v) {
@@ -3377,8 +3350,8 @@ $appConfig = [
         <span class="uf-val">${ufVal}</span>
       </span>
       <span class="main ${clsOdd}">${main}</span>
-      <span class="tkm" title="Odd por minuto restante = (odd atual - 1) / minutos restantes">
-        <span class="tkm-tag">TK/M</span>
+      <span class="tkm" title="Percentual por minuto restante = ((odd atual - 1) / minutos restantes) * 100">
+        <span class="tkm-tag">%/M</span>
         <span class="tkm-val">${tickVal}</span>
       </span>
     `;
@@ -3442,7 +3415,7 @@ $appConfig = [
     `;
             }
             if (!html) {
-                html = `<div class="pl-cell"><div class="m">—</div><div class="o"><span class="uf"><span class="uf-tag">UF</span><span class="uf-val">—</span></span><span class="main">—</span><span class="tkm"><span class="tkm-tag">TK/M</span><span class="tkm-val">—</span></span></div></div>`;
+                html = `<div class="pl-cell"><div class="m">—</div><div class="o"><span class="uf"><span class="uf-tag">UF</span><span class="uf-val">—</span></span><span class="main">—</span><span class="tkm"><span class="tkm-tag">%/M</span><span class="tkm-val">—</span></span></div></div>`;
             }
             grid.insertAdjacentHTML('beforeend', html);
 
@@ -3513,7 +3486,7 @@ $appConfig = [
                         if (ch !== plusRow) ch.remove();
                     });
                     if (plusRow) plusRow.style.display = 'none';
-                    grid.insertAdjacentHTML('beforeend', `<div class="pl-cell"><div class="m">—</div><div class="o"><span class="uf"><span class="uf-tag">UF</span><span class="uf-val">—</span></span><span class="main">—</span><span class="tkm"><span class="tkm-tag">TK/M</span><span class="tkm-val">—</span></span></div></div>`);
+                    grid.insertAdjacentHTML('beforeend', `<div class="pl-cell"><div class="m">—</div><div class="o"><span class="uf"><span class="uf-tag">UF</span><span class="uf-val">—</span></span><span class="main">—</span><span class="tkm"><span class="tkm-tag">%/M</span><span class="tkm-val">—</span></span></div></div>`);
                 }
                     return;
             }
@@ -3959,7 +3932,6 @@ $appConfig = [
                 <th class="col-time text-center">Tempo</th>
                 <th class="col-price text-center">Preço HT</th>
                 <th class="col-price text-center">Preço FT</th>
-                <th class="col-pay text-center">Pagamento / Min</th>
                 ${item.canManage ? `<th class="col-actions text-center">Ações</th>` : ``}
               </tr>
             </thead>
@@ -4006,8 +3978,6 @@ $appConfig = [
             const rid = getRowId(jogo);
             const canEditRow = canManage && source === 'manual';
             const timeLabel = getTimeLabel(jogo);
-            const payHT = calcPayment(vHT);
-            const payFT = calcPayment(vFT);
             const htBadge = Number.isFinite(vHT)
                 ? `<span class="odd-badge odd-badge-ht price-click" data-origin="table" data-phase="HT" data-odd="${Number(vHT).toFixed(2)}">${Number(vHT).toFixed(2)}</span>`
                 : `<span class="odd-badge odd-badge-ht odd-badge-avg">--</span>`;
@@ -4027,12 +3997,6 @@ $appConfig = [
     </td>
     <td class="text-center" data-label="Preço FT">
       ${ftBadge}
-    </td>
-    <td class="text-center" data-label="Pagamento / Min">
-      <span class="metric-stack">
-        <span class="metric-main">HT ${fmtPayment(payHT)}</span>
-        <span class="metric-sub">FT ${fmtPayment(payFT)}</span>
-      </span>
     </td>
     ${
       canManage
@@ -4059,8 +4023,6 @@ $appConfig = [
                 const canClickHT = Number.isFinite(vHTa);
                 const canClickFT = Number.isFinite(vFTa);
                 const k = (kind || '');
-                const payHT = calcPayment(vHTa);
-                const payFT = calcPayment(vFTa);
                 return `
       <tr class="avg-row" style="background-color:#040404;">
         <td class="text-left" data-label="Data" style="padding:5px 10px !important;"><span class="date-val">—</span></td>
@@ -4084,12 +4046,6 @@ $appConfig = [
           <span class="odd-badge odd-badge-ft odd-badge-avg ${canClickFT ? 'price-click' : ''}"
             ${canClickFT ? `data-origin="table" data-phase="FT" data-kind="${k}" data-odd="${Number(vFTa).toFixed(2)}"` : ''}>
             ${fmt(vFTa)}
-          </span>
-        </td>
-        <td class="text-center" data-label="Pagamento / Min" style="padding:5px 10px !important;">
-          <span class="metric-stack">
-            <span class="metric-main">HT ${fmtPayment(payHT)}</span>
-            <span class="metric-sub">FT ${fmtPayment(payFT)}</span>
           </span>
         </td>
         ${canManage ? `<td data-label="Ações" style="padding:5px 10px !important;"></td>` : ``}
