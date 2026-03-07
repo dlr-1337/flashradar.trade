@@ -4,22 +4,42 @@ declare(strict_types=1);
 
 require __DIR__ . '/lib/bootstrap.php';
 
+function pj_api_user_error_status(Throwable $error): int
+{
+    $message = $error->getMessage();
+
+    if (str_contains($message, 'Ja existe um usuario')) {
+        return 409;
+    }
+
+    if (str_contains($message, 'nao encontrado')) {
+        return 404;
+    }
+
+    if (str_contains($message, 'admin geral') || str_contains($message, 'unico admin')) {
+        return 403;
+    }
+
+    return 422;
+}
+
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $action = strtolower(trim((string) ($_GET['action'] ?? '')));
+$currentUser = pj_current_user();
 
 if ($method === 'GET' && $action === 'session') {
     pj_json_response([
         'ok' => true,
-        'authenticated' => pj_is_authenticated(),
-        'username' => pj_auth_username(),
+        'authenticated' => $currentUser !== null,
+        'username' => $currentUser['username'] ?? null,
+        'role' => $currentUser['role'] ?? null,
+        'user' => $currentUser !== null ? pj_public_user($currentUser) : null,
+        'capabilities' => pj_auth_capabilities($currentUser),
     ]);
 }
 
 if ($method === 'POST' && $action === 'login') {
     $payload = pj_request_body();
-    $config = pj_config();
-    $expectedUser = trim((string) ($config['auth']['username'] ?? ''));
-    $expectedHash = trim((string) ($config['auth']['password_hash'] ?? ''));
     $username = trim((string) ($payload['username'] ?? ''));
     $password = (string) ($payload['password'] ?? '');
 
@@ -30,18 +50,25 @@ if ($method === 'POST' && $action === 'login') {
         ], 422);
     }
 
-    if ($username !== $expectedUser || $expectedHash === '' || !password_verify($password, $expectedHash)) {
+    $user = pj_find_user_by_username($username);
+    $passwordHash = is_array($user) ? trim((string) ($user['password_hash'] ?? '')) : '';
+    $isActive = is_array($user) ? (bool) ($user['active'] ?? false) : false;
+
+    if ($user === null || $passwordHash === '' || !$isActive || !password_verify($password, $passwordHash)) {
         pj_json_response([
             'ok' => false,
             'error' => 'Credenciais invalidas.',
         ], 401);
     }
 
-    pj_login($username);
+    pj_login_user($user);
     pj_json_response([
         'ok' => true,
         'authenticated' => true,
-        'username' => $username,
+        'username' => $user['username'],
+        'role' => $user['role'],
+        'user' => pj_public_user($user),
+        'capabilities' => pj_auth_capabilities($user),
     ]);
 }
 
@@ -50,6 +77,141 @@ if ($method === 'POST' && $action === 'logout') {
     pj_json_response([
         'ok' => true,
         'authenticated' => false,
+    ]);
+}
+
+if ($method === 'GET' && $action === 'users') {
+    pj_require_admin_json();
+    pj_json_response([
+        'ok' => true,
+        'users' => pj_list_public_users(),
+    ]);
+}
+
+if ($method === 'POST' && $action === 'create_user') {
+    pj_require_admin_json();
+    $payload = pj_request_body();
+
+    try {
+        $user = pj_create_user(
+            (string) ($payload['username'] ?? ''),
+            (string) ($payload['password'] ?? '')
+        );
+    } catch (Throwable $error) {
+        pj_json_response([
+            'ok' => false,
+            'error' => $error->getMessage(),
+        ], pj_api_user_error_status($error));
+    }
+
+    pj_json_response([
+        'ok' => true,
+        'user' => $user,
+    ], 201);
+}
+
+if ($method === 'POST' && $action === 'update_user') {
+    pj_require_admin_json();
+    $payload = pj_request_body();
+
+    try {
+        $user = pj_update_user_username(
+            trim((string) ($payload['id'] ?? '')),
+            (string) ($payload['username'] ?? '')
+        );
+    } catch (Throwable $error) {
+        pj_json_response([
+            'ok' => false,
+            'error' => $error->getMessage(),
+        ], pj_api_user_error_status($error));
+    }
+
+    pj_json_response([
+        'ok' => true,
+        'user' => $user,
+    ]);
+}
+
+if ($method === 'POST' && $action === 'reset_user_password') {
+    pj_require_admin_json();
+    $payload = pj_request_body();
+
+    try {
+        $user = pj_reset_user_password(
+            trim((string) ($payload['id'] ?? '')),
+            (string) ($payload['password'] ?? '')
+        );
+    } catch (Throwable $error) {
+        pj_json_response([
+            'ok' => false,
+            'error' => $error->getMessage(),
+        ], pj_api_user_error_status($error));
+    }
+
+    pj_json_response([
+        'ok' => true,
+        'user' => $user,
+    ]);
+}
+
+if ($method === 'POST' && $action === 'toggle_user_active') {
+    pj_require_admin_json();
+    $payload = pj_request_body();
+
+    if (!array_key_exists('active', $payload)) {
+        pj_json_response([
+            'ok' => false,
+            'error' => 'Campo active e obrigatorio.',
+        ], 422);
+    }
+
+    $active = filter_var($payload['active'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+    if (!is_bool($active)) {
+        pj_json_response([
+            'ok' => false,
+            'error' => 'Campo active invalido.',
+        ], 422);
+    }
+
+    try {
+        $user = pj_toggle_user_active(
+            trim((string) ($payload['id'] ?? '')),
+            $active
+        );
+    } catch (Throwable $error) {
+        pj_json_response([
+            'ok' => false,
+            'error' => $error->getMessage(),
+        ], pj_api_user_error_status($error));
+    }
+
+    pj_json_response([
+        'ok' => true,
+        'user' => $user,
+    ]);
+}
+
+if ($method === 'POST' && $action === 'change_password') {
+    pj_require_auth_json();
+    $payload = pj_request_body();
+
+    try {
+        $user = pj_change_password(
+            (string) (pj_auth_user_id() ?? ''),
+            (string) ($payload['current_password'] ?? ''),
+            (string) ($payload['new_password'] ?? '')
+        );
+    } catch (Throwable $error) {
+        pj_json_response([
+            'ok' => false,
+            'error' => $error->getMessage(),
+        ], pj_api_user_error_status($error));
+    }
+
+    pj_json_response([
+        'ok' => true,
+        'user' => $user,
+        'message' => 'Senha atualizada com sucesso.',
     ]);
 }
 

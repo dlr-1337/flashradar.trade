@@ -50,7 +50,7 @@ if (pj_is_authenticated()) {
         }
 
         .panel {
-            width: min(100%, 420px);
+            width: min(100%, 440px);
             background: var(--card);
             border: 1px solid var(--card-border);
             border-radius: 28px;
@@ -161,11 +161,11 @@ if (pj_is_authenticated()) {
             <img src="assets/logo-primary.png" alt="PriceJust">
             <h1>Price<span>Just</span></h1>
         </div>
-        <p class="subtitle">Painel local protegido para monitoramento, leitura de odds e operacao manual. Na primeira execucao, o arquivo local de configuracao e criado automaticamente.</p>
+        <p class="subtitle">Painel local protegido para monitoramento, leitura de odds e operacao manual. O primeiro admin geral e migrado automaticamente do arquivo local de configuracao.</p>
         <form id="loginForm">
             <div>
                 <label for="username">Usuario</label>
-                <input id="username" name="username" type="text" value="admin" autocomplete="username" required>
+                <input id="username" name="username" type="text" placeholder="admin" autocomplete="username" required>
             </div>
             <div>
                 <label for="password">Senha</label>
@@ -174,7 +174,7 @@ if (pj_is_authenticated()) {
             <div id="errorBox" class="error"></div>
             <button type="submit">Entrar</button>
         </form>
-        <p class="hint">Login inicial: <strong>admin</strong> / <strong>change-me</strong>. Depois do primeiro acesso, altere o arquivo <code>config.local.php</code> para trocar a senha e, se quiser, preencher a chave da API.</p>
+        <p class="hint">Primeiro acesso padrao: <strong>admin</strong> / <strong>change-me</strong>. Depois disso, altere a senha no menu interno e use a area de usuarios para criar outros logins.</p>
     </div>
     <script>
         const form = document.getElementById('loginForm');

@@ -319,24 +319,383 @@ function pj_config(): array
     return $baseConfig;
 }
 
+function pj_users_file(): string
+{
+    return pj_file_override_path('users', pj_storage_path('users.json'));
+}
+
+function pj_now_iso8601(): string
+{
+    $override = $GLOBALS['__PJ_NOW_ISO'] ?? null;
+    if (is_string($override) && trim($override) !== '') {
+        return trim($override);
+    }
+
+    return gmdate('c');
+}
+
+function pj_normalize_username(string $username): string
+{
+    $trimmed = trim($username);
+    if ($trimmed === '') {
+        return '';
+    }
+
+    if (function_exists('mb_strtolower')) {
+        return mb_strtolower($trimmed, 'UTF-8');
+    }
+
+    return strtolower($trimmed);
+}
+
+function pj_validate_username(string $username): string
+{
+    $trimmed = trim($username);
+    if ($trimmed === '') {
+        throw new InvalidArgumentException('Usuario e obrigatorio.');
+    }
+
+    if (strlen($trimmed) < 3) {
+        throw new InvalidArgumentException('Usuario deve ter pelo menos 3 caracteres.');
+    }
+
+    if (preg_match('/^[A-Za-z0-9._-]+$/', $trimmed) !== 1) {
+        throw new InvalidArgumentException('Usuario deve usar apenas letras, numeros, ponto, underline ou hifen.');
+    }
+
+    return $trimmed;
+}
+
+function pj_validate_password(string $password): string
+{
+    if (strlen($password) < 8) {
+        throw new InvalidArgumentException('Senha deve ter pelo menos 8 caracteres.');
+    }
+
+    return $password;
+}
+
+function pj_next_user_id(): string
+{
+    return 'user_' . bin2hex(random_bytes(8));
+}
+
+function pj_normalize_user_record(array $user): array
+{
+    $id = trim((string) ($user['id'] ?? ''));
+    if ($id === '') {
+        $id = pj_next_user_id();
+    }
+
+    $username = trim((string) ($user['username'] ?? ''));
+    $passwordHash = trim((string) ($user['password_hash'] ?? ''));
+    $role = trim((string) ($user['role'] ?? 'user'));
+    $active = (bool) ($user['active'] ?? true);
+    $createdAt = trim((string) ($user['created_at'] ?? ''));
+    $updatedAt = trim((string) ($user['updated_at'] ?? ''));
+    $now = pj_now_iso8601();
+
+    return [
+        'id' => $id,
+        'username' => $username,
+        'password_hash' => $passwordHash,
+        'role' => $role === 'admin' ? 'admin' : 'user',
+        'active' => $active,
+        'created_at' => $createdAt !== '' ? $createdAt : $now,
+        'updated_at' => $updatedAt !== '' ? $updatedAt : $now,
+    ];
+}
+
+function pj_sort_users(array $users): array
+{
+    usort($users, static function (array $a, array $b): int {
+        $adminOrder = ((string) ($a['role'] ?? 'user') === 'admin' ? 0 : 1)
+            <=> ((string) ($b['role'] ?? 'user') === 'admin' ? 0 : 1);
+        if ($adminOrder !== 0) {
+            return $adminOrder;
+        }
+
+        return strcmp(
+            pj_normalize_username((string) ($a['username'] ?? '')),
+            pj_normalize_username((string) ($b['username'] ?? ''))
+        );
+    });
+
+    return array_values($users);
+}
+
+function pj_seed_admin_user_from_config(): array
+{
+    $config = pj_config();
+    $username = trim((string) ($config['auth']['username'] ?? 'admin'));
+    $passwordHash = trim((string) ($config['auth']['password_hash'] ?? ''));
+
+    if ($username === '') {
+        $username = 'admin';
+    }
+
+    if ($passwordHash === '') {
+        $passwordHash = password_hash('change-me', PASSWORD_DEFAULT);
+        if (!is_string($passwordHash) || $passwordHash === '') {
+            throw new RuntimeException('Unable to seed admin password hash.');
+        }
+    }
+
+    $now = pj_now_iso8601();
+
+    return [
+        'id' => 'admin_general',
+        'username' => $username,
+        'password_hash' => $passwordHash,
+        'role' => 'admin',
+        'active' => true,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ];
+}
+
+function pj_user_store(): array
+{
+    $rows = pj_read_json_file(pj_users_file(), []);
+    $users = [];
+
+    if (is_array($rows)) {
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $normalized = pj_normalize_user_record($row);
+            if ($normalized['username'] === '' || $normalized['password_hash'] === '') {
+                continue;
+            }
+
+            $users[] = $normalized;
+        }
+    }
+
+    if ($users === []) {
+        $users = [pj_seed_admin_user_from_config()];
+        pj_write_json_file(pj_users_file(), $users);
+    }
+
+    return pj_sort_users($users);
+}
+
+function pj_save_user_store(array $users): array
+{
+    $normalized = [];
+    foreach ($users as $user) {
+        if (!is_array($user)) {
+            continue;
+        }
+
+        $record = pj_normalize_user_record($user);
+        if ($record['username'] === '' || $record['password_hash'] === '') {
+            continue;
+        }
+
+        $normalized[] = $record;
+    }
+
+    $normalized = pj_sort_users($normalized);
+    pj_write_json_file(pj_users_file(), $normalized);
+
+    return $normalized;
+}
+
+function pj_find_user_index_by_id(array $users, string $id): ?int
+{
+    foreach ($users as $index => $user) {
+        if ((string) ($user['id'] ?? '') === $id) {
+            return $index;
+        }
+    }
+
+    return null;
+}
+
+function pj_find_user_by_id(string $id): ?array
+{
+    if ($id === '') {
+        return null;
+    }
+
+    foreach (pj_user_store() as $user) {
+        if ((string) ($user['id'] ?? '') === $id) {
+            return $user;
+        }
+    }
+
+    return null;
+}
+
+function pj_find_user_by_username(string $username): ?array
+{
+    $normalized = pj_normalize_username($username);
+    if ($normalized === '') {
+        return null;
+    }
+
+    foreach (pj_user_store() as $user) {
+        if (pj_normalize_username((string) ($user['username'] ?? '')) === $normalized) {
+            return $user;
+        }
+    }
+
+    return null;
+}
+
+function pj_count_active_admins(array $users): int
+{
+    $count = 0;
+    foreach ($users as $user) {
+        if ((string) ($user['role'] ?? 'user') !== 'admin') {
+            continue;
+        }
+
+        if ((bool) ($user['active'] ?? false) !== true) {
+            continue;
+        }
+
+        $count++;
+    }
+
+    return $count;
+}
+
+function pj_public_user(array $user): array
+{
+    return [
+        'id' => (string) ($user['id'] ?? ''),
+        'username' => (string) ($user['username'] ?? ''),
+        'role' => (string) ($user['role'] ?? 'user'),
+        'active' => (bool) ($user['active'] ?? false),
+        'created_at' => (string) ($user['created_at'] ?? ''),
+        'updated_at' => (string) ($user['updated_at'] ?? ''),
+    ];
+}
+
+function pj_list_public_users(): array
+{
+    return array_map(
+        static fn (array $user): array => pj_public_user($user),
+        pj_user_store()
+    );
+}
+
+function pj_session_user_payload(array $user): array
+{
+    return [
+        'id' => (string) ($user['id'] ?? ''),
+        'username' => (string) ($user['username'] ?? ''),
+        'role' => (string) ($user['role'] ?? 'user'),
+    ];
+}
+
+function pj_clear_auth_session(): void
+{
+    unset($_SESSION[PRICEJUST_SESSION_KEY]);
+}
+
+function pj_current_user(): ?array
+{
+    $sessionUser = $_SESSION[PRICEJUST_SESSION_KEY] ?? null;
+    if ($sessionUser === null) {
+        return null;
+    }
+
+    $resolved = null;
+
+    if (is_array($sessionUser)) {
+        $sessionId = trim((string) ($sessionUser['id'] ?? ''));
+        if ($sessionId !== '') {
+            $resolved = pj_find_user_by_id($sessionId);
+        }
+
+        if ($resolved === null) {
+            $sessionUsername = trim((string) ($sessionUser['username'] ?? ''));
+            if ($sessionUsername !== '') {
+                $resolved = pj_find_user_by_username($sessionUsername);
+            }
+        }
+    } elseif (is_string($sessionUser) && $sessionUser !== '') {
+        $resolved = pj_find_user_by_username($sessionUser);
+    }
+
+    if ($resolved === null || (bool) ($resolved['active'] ?? false) !== true) {
+        pj_clear_auth_session();
+        return null;
+    }
+
+    $expectedPayload = pj_session_user_payload($resolved);
+    if ($sessionUser !== $expectedPayload) {
+        $_SESSION[PRICEJUST_SESSION_KEY] = $expectedPayload;
+    }
+
+    return $resolved;
+}
+
 function pj_is_authenticated(): bool
 {
-    return is_string($_SESSION[PRICEJUST_SESSION_KEY] ?? null) && $_SESSION[PRICEJUST_SESSION_KEY] !== '';
+    return pj_current_user() !== null;
 }
 
 function pj_auth_username(): ?string
 {
-    return pj_is_authenticated() ? (string) $_SESSION[PRICEJUST_SESSION_KEY] : null;
+    $user = pj_current_user();
+    return is_array($user) ? (string) ($user['username'] ?? '') : null;
+}
+
+function pj_auth_user_id(): ?string
+{
+    $user = pj_current_user();
+    return is_array($user) ? (string) ($user['id'] ?? '') : null;
+}
+
+function pj_auth_role(): ?string
+{
+    $user = pj_current_user();
+    return is_array($user) ? (string) ($user['role'] ?? '') : null;
+}
+
+function pj_auth_capabilities(?array $user = null): array
+{
+    $resolved = $user ?? pj_current_user();
+    $isAdmin = is_array($resolved) && (string) ($resolved['role'] ?? '') === 'admin';
+
+    return [
+        'can_manage_users' => $isAdmin,
+        'can_change_password' => $resolved !== null,
+        'can_use_dashboard' => $resolved !== null,
+        'can_edit_manual_rows' => $resolved !== null,
+    ];
+}
+
+function pj_is_admin(): bool
+{
+    return pj_auth_role() === 'admin';
+}
+
+function pj_login_user(array $user): void
+{
+    $_SESSION[PRICEJUST_SESSION_KEY] = pj_session_user_payload($user);
+    session_regenerate_id(true);
 }
 
 function pj_login(string $username): void
 {
-    $_SESSION[PRICEJUST_SESSION_KEY] = $username;
-    session_regenerate_id(true);
+    $user = pj_find_user_by_username($username);
+    if ($user === null || (bool) ($user['active'] ?? false) !== true) {
+        throw new RuntimeException('Unable to log in unknown user.');
+    }
+
+    pj_login_user($user);
 }
 
 function pj_logout(): void
 {
+    pj_clear_auth_session();
     $_SESSION = [];
 
     if (ini_get('session.use_cookies')) {
@@ -365,6 +724,196 @@ function pj_require_auth_page(): void
     }
 }
 
+function pj_require_admin_json(): void
+{
+    pj_require_auth_json();
+
+    if (!pj_is_admin()) {
+        pj_json_response([
+            'ok' => false,
+            'error' => 'ADMIN_REQUIRED',
+        ], 403);
+    }
+}
+
+function pj_require_admin_page(): void
+{
+    pj_require_auth_page();
+
+    if (!pj_is_admin()) {
+        header('Location: index.php');
+        exit;
+    }
+}
+
+function pj_find_saved_user_by_id(array $users, string $id): array
+{
+    foreach ($users as $user) {
+        if ((string) ($user['id'] ?? '') === $id) {
+            return $user;
+        }
+    }
+
+    throw new RuntimeException('Nao foi possivel localizar o usuario salvo.');
+}
+
+function pj_create_user(string $username, string $password): array
+{
+    $validatedUsername = pj_validate_username($username);
+    $validatedPassword = pj_validate_password($password);
+    $users = pj_user_store();
+
+    foreach ($users as $candidate) {
+        if (pj_normalize_username((string) ($candidate['username'] ?? '')) === pj_normalize_username($validatedUsername)) {
+            throw new InvalidArgumentException('Ja existe um usuario com esse login.');
+        }
+    }
+
+    $now = pj_now_iso8601();
+    $passwordHash = password_hash($validatedPassword, PASSWORD_DEFAULT);
+    if (!is_string($passwordHash) || $passwordHash === '') {
+        throw new RuntimeException('Nao foi possivel gerar a senha do usuario.');
+    }
+
+    $users[] = [
+        'id' => pj_next_user_id(),
+        'username' => $validatedUsername,
+        'password_hash' => $passwordHash,
+        'role' => 'user',
+        'active' => true,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ];
+
+    $savedUsers = pj_save_user_store($users);
+    $createdUser = pj_find_user_by_username($validatedUsername);
+    if ($createdUser === null) {
+        throw new RuntimeException('Nao foi possivel salvar o novo usuario.');
+    }
+
+    return pj_public_user($createdUser);
+}
+
+function pj_update_user_username(string $id, string $username): array
+{
+    $validatedUsername = pj_validate_username($username);
+    $users = pj_user_store();
+    $userIndex = pj_find_user_index_by_id($users, trim($id));
+
+    if ($userIndex === null) {
+        throw new InvalidArgumentException('Usuario nao encontrado.');
+    }
+
+    $currentUser = $users[$userIndex];
+    if ((string) ($currentUser['role'] ?? 'user') === 'admin') {
+        throw new InvalidArgumentException('O admin geral nao pode ser editado por esta tela.');
+    }
+
+    foreach ($users as $candidate) {
+        if ((string) ($candidate['id'] ?? '') === (string) ($currentUser['id'] ?? '')) {
+            continue;
+        }
+
+        if (pj_normalize_username((string) ($candidate['username'] ?? '')) === pj_normalize_username($validatedUsername)) {
+            throw new InvalidArgumentException('Ja existe um usuario com esse login.');
+        }
+    }
+
+    $users[$userIndex]['username'] = $validatedUsername;
+    $users[$userIndex]['updated_at'] = pj_now_iso8601();
+    $savedUsers = pj_save_user_store($users);
+
+    return pj_public_user(pj_find_saved_user_by_id($savedUsers, (string) ($currentUser['id'] ?? '')));
+}
+
+function pj_reset_user_password(string $id, string $password): array
+{
+    $validatedPassword = pj_validate_password($password);
+    $users = pj_user_store();
+    $userIndex = pj_find_user_index_by_id($users, trim($id));
+
+    if ($userIndex === null) {
+        throw new InvalidArgumentException('Usuario nao encontrado.');
+    }
+
+    $currentUser = $users[$userIndex];
+    if ((string) ($currentUser['role'] ?? 'user') === 'admin') {
+        throw new InvalidArgumentException('O admin geral nao pode ser alterado por esta tela.');
+    }
+
+    $passwordHash = password_hash($validatedPassword, PASSWORD_DEFAULT);
+    if (!is_string($passwordHash) || $passwordHash === '') {
+        throw new RuntimeException('Nao foi possivel atualizar a senha.');
+    }
+
+    $users[$userIndex]['password_hash'] = $passwordHash;
+    $users[$userIndex]['updated_at'] = pj_now_iso8601();
+    $savedUsers = pj_save_user_store($users);
+
+    return pj_public_user(pj_find_saved_user_by_id($savedUsers, (string) ($currentUser['id'] ?? '')));
+}
+
+function pj_toggle_user_active(string $id, bool $active): array
+{
+    $users = pj_user_store();
+    $userIndex = pj_find_user_index_by_id($users, trim($id));
+
+    if ($userIndex === null) {
+        throw new InvalidArgumentException('Usuario nao encontrado.');
+    }
+
+    $targetUser = $users[$userIndex];
+    if ((string) ($targetUser['role'] ?? 'user') === 'admin' && $active === false && pj_count_active_admins($users) <= 1) {
+        throw new InvalidArgumentException('Nao e permitido desativar o unico admin geral.');
+    }
+
+    if ((string) ($targetUser['role'] ?? 'user') === 'admin') {
+        throw new InvalidArgumentException('O admin geral nao pode ser alterado por esta tela.');
+    }
+
+    $users[$userIndex]['active'] = $active;
+    $users[$userIndex]['updated_at'] = pj_now_iso8601();
+    $savedUsers = pj_save_user_store($users);
+
+    return pj_public_user(pj_find_saved_user_by_id($savedUsers, (string) ($targetUser['id'] ?? '')));
+}
+
+function pj_change_password(string $userId, string $currentPassword, string $newPassword): array
+{
+    if (trim($userId) === '') {
+        throw new InvalidArgumentException('Sessao invalida.');
+    }
+
+    $validatedPassword = pj_validate_password($newPassword);
+    $users = pj_user_store();
+    $userIndex = pj_find_user_index_by_id($users, trim($userId));
+
+    if ($userIndex === null) {
+        throw new InvalidArgumentException('Usuario nao encontrado.');
+    }
+
+    $currentUser = $users[$userIndex];
+    if (!password_verify($currentPassword, (string) ($currentUser['password_hash'] ?? ''))) {
+        throw new InvalidArgumentException('Senha atual invalida.');
+    }
+
+    $passwordHash = password_hash($validatedPassword, PASSWORD_DEFAULT);
+    if (!is_string($passwordHash) || $passwordHash === '') {
+        throw new RuntimeException('Nao foi possivel atualizar a senha.');
+    }
+
+    $users[$userIndex]['password_hash'] = $passwordHash;
+    $users[$userIndex]['updated_at'] = pj_now_iso8601();
+    $savedUsers = pj_save_user_store($users);
+    $updatedUser = pj_find_saved_user_by_id($savedUsers, (string) ($currentUser['id'] ?? ''));
+
+    if (pj_auth_user_id() === (string) ($updatedUser['id'] ?? '')) {
+        $_SESSION[PRICEJUST_SESSION_KEY] = pj_session_user_payload($updatedUser);
+    }
+
+    return pj_public_user($updatedUser);
+}
+
 function pj_manual_file(): string
 {
     return pj_file_override_path('manual', pj_storage_path('manual.json'));
@@ -384,7 +933,6 @@ function pj_history_sync_state_file(): string
 {
     return pj_file_override_path('history_sync_state', pj_storage_path('cache/history-sync.json'));
 }
-
 function pj_manual_rows(): array
 {
     $rows = pj_read_json_file(pj_manual_file(), []);

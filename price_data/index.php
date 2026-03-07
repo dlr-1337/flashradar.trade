@@ -5,8 +5,12 @@ declare(strict_types=1);
 require __DIR__ . '/lib/bootstrap.php';
 pj_require_auth_page();
 
+$currentUser = pj_current_user();
 $appConfig = [
-    'username' => pj_auth_username(),
+    'username' => (string) ($currentUser['username'] ?? ''),
+    'role' => (string) ($currentUser['role'] ?? 'user'),
+    'roleLabel' => pj_is_admin() ? 'Admin geral' : 'Usuario',
+    'canManageUsers' => (bool) (pj_auth_capabilities($currentUser)['can_manage_users'] ?? false),
     'refreshSeconds' => (int) (pj_config()['dashboard']['refresh_seconds'] ?? 60),
     'timezone' => (string) (pj_config()['api']['timezone'] ?? 'America/Sao_Paulo'),
 ];
@@ -106,6 +110,7 @@ $appConfig = [
         }
 
         .btn-add {
+            text-decoration: none;
             background-color: var(--accent);
             color: #fff;
             border: none;
@@ -127,6 +132,7 @@ $appConfig = [
         }
 
         .btn-secondary {
+            text-decoration: none;
             background: #101010;
             color: #ddd;
             border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1826,7 +1832,11 @@ $appConfig = [
             <h1>Price<span>Just</span> Local</h1>
         </div>
         <div class="hdr-actions">
-            <span class="user-chip">Sessao: <?= htmlspecialchars((string) ($appConfig['username'] ?? 'admin'), ENT_QUOTES, 'UTF-8') ?></span>
+            <span class="user-chip">Sessao: <?= htmlspecialchars((string) ($appConfig['username'] ?? 'admin'), ENT_QUOTES, 'UTF-8') ?> (<?= htmlspecialchars((string) ($appConfig['roleLabel'] ?? 'Usuario'), ENT_QUOTES, 'UTF-8') ?>)</span>
+            <a class="btn-secondary" href="change-password.php">Alterar senha</a>
+            <?php if (!empty($appConfig['canManageUsers'])): ?>
+                <a class="btn-secondary" href="admin.php">Usuarios</a>
+            <?php endif; ?>
             <div class="sync-history-controls">
                 <button class="btn-secondary" type="button" id="syncHistoryBtn">Sincronizar historico</button>
                 <span class="sync-status" id="syncHistoryStatus" aria-live="polite"></span>

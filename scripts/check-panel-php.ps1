@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $phpLocal = Join-Path $repoRoot 'tools\php\php.exe'
@@ -12,7 +12,10 @@ if (-not $php) {
 $required = @(
     (Join-Path $repoRoot 'price_data\index.php'),
     (Join-Path $repoRoot 'price_data\login.php'),
+    (Join-Path $repoRoot 'price_data\admin.php'),
+    (Join-Path $repoRoot 'price_data\change-password.php'),
     (Join-Path $repoRoot 'price_data\api.php'),
+    (Join-Path $repoRoot 'scripts\check-api-auth.php'),
     (Join-Path $repoRoot 'scripts\check-bootstrap-upstream-errors.php'),
     (Join-Path $repoRoot 'scripts\check-bootstrap-odds-api.php'),
     (Join-Path $repoRoot 'scripts\check-bootstrap-history-sync.php')

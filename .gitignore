@@ -2,3 +2,4 @@ price_data/config.local.php
 price_data/storage/manual.json
 price_data/storage/cache/*
 price_data/storage/server*.log
+price_data/storage/users.json

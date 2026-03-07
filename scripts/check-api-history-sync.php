@@ -66,6 +66,7 @@ $jsonFile = str_replace('\\', '/', $tempDir . DIRECTORY_SEPARATOR . 'dados.json'
 $stateFile = str_replace('\\', '/', $tempDir . DIRECTORY_SEPARATOR . 'history-sync.json');
 $manualFile = str_replace('\\', '/', $tempDir . DIRECTORY_SEPARATOR . 'manual.json');
 $cacheFile = str_replace('\\', '/', $tempDir . DIRECTORY_SEPARATOR . 'dashboard.json');
+$usersFile = str_replace('\\', '/', $tempDir . DIRECTORY_SEPARATOR . 'users.json');
 
 file_put_contents($jsonFile, json_encode([
     [
@@ -102,12 +103,16 @@ $_SERVER['REQUEST_METHOD'] = 'POST';
 $_GET['action'] = 'sync_history';
 $GLOBALS['__PJ_REQUEST_BODY'] = ['reset' => true];
 $GLOBALS['__PJ_FILE_OVERRIDES'] = [
+    'users' => __USERS_FILE__,
     'manual' => __MANUAL_FILE__,
     'cache' => __CACHE_FILE__,
     'json_source' => __JSON_FILE__,
     'history_sync_state' => __STATE_FILE__,
 ];
 $GLOBALS['__PJ_CONFIG_OVERRIDE'] = [
+    'auth' => [
+        'username' => 'admin',
+    ],
     'api' => [
         'key' => 'test-key',
         'base_url' => 'https://mock.odds-api.local/v3',
@@ -221,6 +226,7 @@ PHP, [
     '__API_FILE__' => var_export($apiFile, true),
     '__JSON_FILE__' => var_export($jsonFile, true),
     '__STATE_FILE__' => var_export($stateFile, true),
+    '__USERS_FILE__' => var_export($usersFile, true),
     '__MANUAL_FILE__' => var_export($manualFile, true),
     '__CACHE_FILE__' => var_export($cacheFile, true),
 ]);

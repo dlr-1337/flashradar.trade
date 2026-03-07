@@ -3,6 +3,9 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $paths = @(
     (Join-Path $repoRoot 'price_data\index.php'),
+    (Join-Path $repoRoot 'price_data\login.php'),
+    (Join-Path $repoRoot 'price_data\admin.php'),
+    (Join-Path $repoRoot 'price_data\change-password.php'),
     (Join-Path $repoRoot 'price_data\storage\manual.json')
 )
 $markers = @(
@@ -44,4 +47,4 @@ if ($findings.Count -gt 0) {
     exit 1
 }
 
-Write-Host "Mojibake check passed."
+Write-Host 'Mojibake check passed.'
