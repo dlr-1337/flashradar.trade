@@ -1804,12 +1804,6 @@ $appConfig = [
         <option value="Fora">Jogando Fora</option>
       </select>
 
-            <select id="paymentWindow" class="filter-select">
-        <option value="5">Pagamento / 5 min</option>
-        <option value="10">Pagamento / 10 min</option>
-        <option value="15">Pagamento / 15 min</option>
-      </select>
-
             <button type="button" class="btn-clear" onclick="limparFiltros()">Limpar</button>
             <div class="shown-count" id="shownCount"><b>0</b> jogos</div>
         </div>
@@ -2078,7 +2072,6 @@ $appConfig = [
             fetched_at: null,
             refresh_seconds: APP_CONFIG.refreshSeconds || 60
         };
-        let SELECTED_PAYMENT_WINDOW = 5;
         let PRICE_LINE_GROUP_STEP = 1;
 
         let RENDER_QUEUE = [];
@@ -2451,18 +2444,6 @@ $appConfig = [
 
         function fmt(v) {
             return (v == null || !Number.isFinite(v)) ? '--' : v.toFixed(2);
-        }
-
-        function getPaymentWindow() {
-            return Math.max(1, Number(SELECTED_PAYMENT_WINDOW || 5));
-        }
-
-        function fmtPayment(v) {
-            return (v == null || !Number.isFinite(v)) ? '--' : Number(v).toFixed(2);
-        }
-
-        function calcPayment(v) {
-            return Number.isFinite(v) ? v / getPaymentWindow() : null;
         }
 
         function formatKickoffLabel(isoString) {
@@ -4369,17 +4350,6 @@ $appConfig = [
             document.getElementById('filterSearch').addEventListener('input', filtrarDashboard);
             document.getElementById('filterStatus').addEventListener('change', filtrarDashboard);
             document.getElementById('filterVenue').addEventListener('change', filtrarDashboard);
-            const paymentWindow = document.getElementById('paymentWindow');
-            const savedPaymentWindow = localStorage.getItem('pj_payment_window');
-            if (savedPaymentWindow && ['5', '10', '15'].includes(savedPaymentWindow)) {
-                paymentWindow.value = savedPaymentWindow;
-            }
-            SELECTED_PAYMENT_WINDOW = Number(paymentWindow.value || '5');
-            paymentWindow.addEventListener('change', () => {
-                SELECTED_PAYMENT_WINDOW = Number(paymentWindow.value || '5');
-                localStorage.setItem('pj_payment_window', String(SELECTED_PAYMENT_WINDOW));
-                filtrarDashboard();
-            });
             const plGroupStep = document.getElementById('plGroupStep');
             const savedPlGroupStep = localStorage.getItem('pj_price_line_group_step');
             PRICE_LINE_GROUP_STEP = sanitizePriceLineGroupStep(savedPlGroupStep || plGroupStep?.value || '1');
