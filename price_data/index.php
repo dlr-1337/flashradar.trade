@@ -2174,9 +2174,109 @@ $appConfig = [
     <script>
         const APP_CONFIG = <?= json_encode($appConfig, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
 
+        function createEmptyHistorySyncSummary() {
+            return {
+                status: 'idle',
+                updated_at: null,
+                date_filter: {
+                    applied: false,
+                    from: null,
+                    to: null
+                },
+                requested_range_synced: false,
+                warning: null
+            };
+        }
+
+        function normalizeDateFilterPayload(payload) {
+            if (!payload || typeof payload !== 'object') {
+                return {
+                    applied: false,
+                    from: null,
+                    to: null
+                };
+            }
+
+            const applied = payload.applied === true;
+            const from = applied ? String(payload.from || '').trim() : '';
+            const to = applied ? String(payload.to || '').trim() : '';
+            if (!applied || !from || !to) {
+                return {
+                    applied: false,
+                    from: null,
+                    to: null
+                };
+            }
+
+            return {
+                applied: true,
+                from,
+                to
+            };
+        }
+
+        function normalizeHistorySyncSummary(summary) {
+            const fallback = createEmptyHistorySyncSummary();
+            if (!summary || typeof summary !== 'object') {
+                return fallback;
+            }
+
+            const status = String(summary.status || 'idle').toLowerCase();
+            const normalizedStatus = ['idle', 'running', 'completed', 'error'].includes(status) ? status : 'idle';
+            const warning = String(summary.warning || '').trim();
+            const updatedAt = String(summary.updated_at || '').trim();
+
+            return {
+                status: normalizedStatus,
+                updated_at: updatedAt || null,
+                date_filter: normalizeDateFilterPayload(summary.date_filter),
+                requested_range_synced: summary.requested_range_synced === true,
+                warning: warning || null
+            };
+        }
+
+        function normalizeApiMeta(meta) {
+            const source = meta && typeof meta === 'object' ? meta : {};
+
+            return {
+                stale: source.stale === true,
+                configured: source.configured !== false,
+                from_cache: source.from_cache === true,
+                warning: String(source.warning || '').trim() || null,
+                fetched_at: String(source.fetched_at || '').trim() || null,
+                refresh_seconds: Number(source.refresh_seconds || APP_CONFIG.refreshSeconds || 60),
+                mode: String(source.mode || 'local').toLowerCase() === 'history' ? 'history' : 'local',
+                date_filter: normalizeDateFilterPayload(source.date_filter),
+                history_sync: normalizeHistorySyncSummary(source.history_sync)
+            };
+        }
+
+        function buildSyncHistoryPayloadFromMeta(summary, previousPayload = LAST_SYNC_HISTORY_PAYLOAD) {
+            const normalized = normalizeHistorySyncSummary(summary);
+            const previous = previousPayload && typeof previousPayload === 'object' ? previousPayload : {};
+            const previousState = String(previous.state || '').toLowerCase();
+
+            return {
+                ok: normalized.status !== 'error',
+                state: normalized.status,
+                warning: normalized.warning,
+                date_filter: normalized.date_filter,
+                requested_range_synced: normalized.requested_range_synced,
+                counts: previousState === normalized.status && previous.counts && typeof previous.counts === 'object'
+                    ? previous.counts
+                    : undefined,
+                progress: previousState === normalized.status && previous.progress && typeof previous.progress === 'object'
+                    ? previous.progress
+                    : undefined,
+                message: previousState === normalized.status && String(previous.message || '').trim()
+                    ? String(previous.message).trim()
+                    : null
+            };
+        }
+
         let TODOS_DADOS = [];
         let PL_CUSTOM_MODE = false;
-        let LAST_API_META = {
+        let LAST_API_META = normalizeApiMeta({
             stale: false,
             configured: true,
             from_cache: false,
@@ -2188,8 +2288,9 @@ $appConfig = [
                 applied: false,
                 from: null,
                 to: null
-            }
-        };
+            },
+            history_sync: createEmptyHistorySyncSummary()
+        });
         let IS_LOADING_ESTUDOS = false;
         const HISTORY_SEARCH_STATE = {
             applied: false,
@@ -2762,6 +2863,12 @@ $appConfig = [
             const canSync = hasAppliedHistorySearch() && LAST_API_META?.configured !== false;
             const counts = getSyncHistoryCounts(payload);
             const progress = payload?.progress && typeof payload.progress === 'object' ? payload.progress : {};
+            const hasDetailedCounts = payload?.counts && typeof payload.counts === 'object' && Object.keys(payload.counts).length > 0;
+            const hasDetailedProgress = payload?.progress && typeof payload.progress === 'object'
+                && (Number(payload.progress.total || 0) > 0
+                    || Number(payload.progress.pending_events || 0) > 0
+                    || String(payload.progress.current_league || '').trim() !== '');
+            const requestedRangeSynced = payload?.requested_range_synced === true;
             const details = [];
             let statusText = '';
 
@@ -2771,13 +2878,18 @@ $appConfig = [
                 statusText = 'Busque um periodo antes de sincronizar.';
                 statusEl.classList.add('warning');
             } else if (running) {
-                statusText = `Historico ${formatSyncProgress(progress)}`;
+                statusText = hasDetailedProgress
+                    ? `Historico ${formatSyncProgress(progress)}`
+                    : 'Sincronizacao em andamento.';
                 statusEl.classList.add('running');
-                details.push(formatSyncCounts(counts));
+                if (hasDetailedCounts) details.push(formatSyncCounts(counts));
                 if (progress.current_league) details.push(String(progress.current_league));
                 if (Number(progress.pending_events || 0) > 0) details.push(`pendentes ${Number(progress.pending_events || 0)}`);
+            } else if (state === 'completed' && payload?.warning && !requestedRangeSynced) {
+                statusText = String(payload.warning);
+                statusEl.classList.add('warning');
             } else if (state === 'completed') {
-                statusText = `Concluido ${formatSyncCounts(counts)}`;
+                statusText = hasDetailedCounts ? `Concluido ${formatSyncCounts(counts)}` : 'Historico sincronizado.';
                 statusEl.classList.add('completed');
             } else if (state === 'error') {
                 statusText = String(payload?.warning || payload?.message || 'Falha na sincronizacao do historico.');
@@ -2900,18 +3012,27 @@ $appConfig = [
             const configured = LAST_API_META?.configured !== false;
             const historyApplied = hasAppliedHistorySearch() || !!LAST_API_META?.date_filter?.applied;
             const mode = String(LAST_API_META?.mode || (historyApplied ? 'history' : 'local')).toLowerCase();
+            const isHistoryWarning = mode === 'history' && warning && !LAST_API_META?.stale;
+            const needsAdminSyncCopy = APP_CONFIG.canManageUsers === true;
 
             let title = 'Nenhum dado encontrado.';
             let description = 'Ajuste os filtros para exibir outros registros.';
 
             if (totalRows === 0) {
                 if (warning) {
-                    title = mode === 'history'
-                        ? 'Falha ao buscar o historico.'
-                        : 'Falha ao carregar dados locais.';
-                    description = mode === 'history'
-                        ? 'Veja o aviso acima, ajuste o intervalo e clique em Buscar novamente.'
-                        : 'Veja o aviso acima. O painel volta a exibir registros quando as fontes locais estiverem disponiveis.';
+                    if (isHistoryWarning) {
+                        title = 'Nenhum historico sincronizado para esse periodo.';
+                        description = needsAdminSyncCopy
+                            ? 'Sincronize o historico desse periodo e busque novamente.'
+                            : 'Peca para um admin sincronizar o historico desse periodo.';
+                    } else {
+                        title = mode === 'history'
+                            ? 'Falha ao buscar o historico.'
+                            : 'Falha ao carregar dados locais.';
+                        description = mode === 'history'
+                            ? 'Veja o aviso acima, ajuste o intervalo e clique em Buscar novamente.'
+                            : 'Veja o aviso acima. O painel volta a exibir registros quando as fontes locais estiverem disponiveis.';
+                    }
                 } else if (mode === 'history' || historyApplied) {
                     title = 'Nenhum jogo encerrado encontrado.';
                     description = 'Ajuste a data inicial e final e clique em Buscar novamente.';
@@ -4513,13 +4634,14 @@ $appConfig = [
                 }
 
                 TODOS_DADOS = Array.isArray(payload?.rows) ? payload.rows : [];
-                LAST_API_META = payload?.meta || LAST_API_META;
+                LAST_API_META = normalizeApiMeta(payload?.meta || LAST_API_META);
                 if (!Array.isArray(TODOS_DADOS)) TODOS_DADOS = [];
 
                 const payloadMode = String(LAST_API_META?.mode || options?.mode || 'local').toLowerCase();
                 const payloadFilter = LAST_API_META?.date_filter || {};
                 if (payloadMode === 'history' && payloadFilter?.applied) {
                     setAppliedHistorySearch(payloadFilter.from, payloadFilter.to);
+                    LAST_SYNC_HISTORY_PAYLOAD = buildSyncHistoryPayloadFromMeta(LAST_API_META?.history_sync, LAST_SYNC_HISTORY_PAYLOAD);
                 } else if (payloadMode === 'local') {
                     clearAppliedHistorySearch();
                 }
@@ -4534,7 +4656,7 @@ $appConfig = [
                 filtrarDashboard();
             } catch (err) {
                 console.error(err);
-                LAST_API_META = {
+                LAST_API_META = normalizeApiMeta({
                     ...LAST_API_META,
                     stale: true,
                     mode: String(options?.mode || 'local'),
@@ -4554,7 +4676,7 @@ $appConfig = [
                         : (String(options?.mode || 'local').toLowerCase() === 'history'
                             ? 'Falha ao buscar historico. Consulte price_data/storage/cache/api-errors.log.'
                             : 'Falha ao carregar dados locais. Consulte price_data/storage/cache/api-errors.log.')
-                };
+                });
                 renderApiWarning();
                 filtrarDashboard();
             } finally {

@@ -131,6 +131,40 @@ file_put_contents($usersFile, json_encode([
     ],
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
+file_put_contents($stateFile, json_encode([
+    'version' => 1,
+    'status' => 'completed',
+    'started_at' => '2026-01-01T00:00:00+00:00',
+    'updated_at' => '2026-01-02T00:00:00+00:00',
+    'tasks' => [],
+    'next_task_index' => 1,
+    'current_task' => null,
+    'pending_events' => [],
+    'date_filter' => [
+        'applied' => true,
+        'from' => '2025-12-10',
+        'to' => '2025-12-20',
+    ],
+    'filter_signature' => sha1('2025-12-10|2025-12-20'),
+    'counts' => [
+        'inserted' => 1,
+        'updated' => 1,
+        'skipped' => 0,
+        'preserved' => 2,
+        'total_json_rows' => 4,
+    ],
+    'warning' => null,
+    'message' => 'Sincronizacao do historico concluida.',
+    'progress' => [
+        'current' => 1,
+        'total' => 1,
+        'percent' => 100,
+        'pending_events' => 0,
+        'current_league' => null,
+        'current_range' => null,
+    ],
+], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
 $unauthCode = strtr(<<<'PHP'
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_GET['action'] = 'sync_history';
@@ -196,92 +230,7 @@ $GLOBALS['__PJ_CONFIG_OVERRIDE'] = [
     ],
 ];
 $GLOBALS['__PJ_HTTP_JSON_OVERRIDE'] = static function (string $method, string $url, array $headers): array {
-    $parsed = parse_url($url);
-    $path = $parsed['path'] ?? '';
-    parse_str($parsed['query'] ?? '', $query);
-
-    if ($path === '/v3/leagues') {
-        return [
-            [
-                'name' => 'League A',
-                'slug' => 'league-a',
-                'sport' => ['slug' => 'football'],
-            ],
-        ];
-    }
-
-    if ($path === '/v3/historical/events') {
-        return [
-            [
-                'id' => 111,
-                'home' => 'Home FC',
-                'away' => 'Away FC',
-                'date' => '2025-12-14T19:00:00Z',
-                'status' => 'finished',
-                'league' => [
-                    'name' => 'League A',
-                    'slug' => 'league-a',
-                ],
-                'scores' => [
-                    'home' => 2,
-                    'away' => 1,
-                ],
-            ],
-            [
-                'id' => 333,
-                'home' => 'Pending FC',
-                'away' => 'Waiting FC',
-                'date' => '2025-12-16T19:00:00Z',
-                'status' => 'pending',
-                'league' => [
-                    'name' => 'League A',
-                    'slug' => 'league-a',
-                ],
-                'scores' => [
-                    'home' => 0,
-                    'away' => 0,
-                ],
-            ],
-        ];
-    }
-
-    if ($path === '/v3/historical/odds') {
-        $eventId = (int) ($query['eventId'] ?? 0);
-        if ($eventId === 111) {
-            return [
-                'id' => 111,
-                'home' => 'Home FC',
-                'away' => 'Away FC',
-                'date' => '2025-12-14T19:00:00Z',
-                'status' => 'finished',
-                'bookmakers' => [
-                    'Bet365' => [
-                        [
-                            'name' => 'ML',
-                            'odds' => [
-                                [
-                                    'home' => '2.40',
-                                    'draw' => '3.20',
-                                    'away' => '2.80',
-                                ],
-                            ],
-                        ],
-                        [
-                            'name' => 'Half Time Result',
-                            'odds' => [
-                                [
-                                    'label' => '1',
-                                    'under' => '1.70',
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
-            ];
-        }
-    }
-
-    throw new RuntimeException('Unexpected mocked request: ' . $path);
+    throw new RuntimeException('History GET should not call upstream.');
 };
 include __API_FILE__;
 PHP, [
@@ -299,16 +248,19 @@ assert_same('history', $historyPreviewPayload['meta']['mode'] ?? null, 'History 
 assert_same(true, $historyPreviewPayload['meta']['date_filter']['applied'] ?? false, 'History preview should expose an applied date filter.');
 assert_same('2025-12-10', $historyPreviewPayload['meta']['date_filter']['from'] ?? null, 'History preview should expose the start date.');
 assert_same('2025-12-20', $historyPreviewPayload['meta']['date_filter']['to'] ?? null, 'History preview should expose the end date.');
-assert_same(3, count($historyPreviewPayload['rows'] ?? []), 'History preview should merge local rows plus the deduplicated remote rows in range.');
+assert_same(2, count($historyPreviewPayload['rows'] ?? []), 'History preview should return only locally cached rows in range.');
+assert_same('completed', $historyPreviewPayload['meta']['history_sync']['status'] ?? null, 'History preview should expose the cached history sync status.');
+assert_same('2026-01-02T00:00:00+00:00', $historyPreviewPayload['meta']['history_sync']['updated_at'] ?? null, 'History preview should expose the last sync update time.');
+assert_same(true, $historyPreviewPayload['meta']['history_sync']['requested_range_synced'] ?? false, 'History preview should mark the requested range as synchronized.');
+assert_same(null, $historyPreviewPayload['meta']['history_sync']['warning'] ?? null, 'History preview should not warn when the requested range is fully synchronized.');
 
 $historyPreviewById = [];
 foreach (($historyPreviewPayload['rows'] ?? []) as $row) {
     $historyPreviewById[(string) ($row['id'] ?? '')] = $row;
 }
 
-assert_true(isset($historyPreviewById['legacy-row']) || isset($historyPreviewById['json_legacy-row']), 'Legacy monthly rows inside the range should remain visible.');
-assert_true(isset($historyPreviewById['api_111_home']), 'History preview should prefer fresh remote rows for the matched home side.');
-assert_true(isset($historyPreviewById['api_111_away']), 'History preview should include the away side from the remote response.');
+assert_true(isset($historyPreviewById['json_legacy-row']), 'Legacy monthly rows inside the range should remain visible.');
+assert_true(isset($historyPreviewById['json_oddsapi_111_home']), 'Cached managed rows inside the range should remain visible.');
 assert_true(!isset($historyPreviewById['json_outside-exact-range']), 'Rows with exact kickoff outside the requested range should be excluded.');
 
 $authCode = strtr(<<<'PHP'

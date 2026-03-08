@@ -92,6 +92,109 @@ function pj_history_sync_filter_signature(?string $dateFrom, ?string $dateTo): s
     return sha1($from . '|' . $to);
 }
 
+function pj_history_sync_empty_summary(): array
+{
+    return [
+        'status' => 'idle',
+        'updated_at' => null,
+        'date_filter' => pj_dashboard_date_filter_payload(),
+        'requested_range_synced' => false,
+        'warning' => null,
+    ];
+}
+
+function pj_history_sync_summary_date_filter(mixed $dateFilter): array
+{
+    if (!is_array($dateFilter)) {
+        return pj_dashboard_date_filter_payload();
+    }
+
+    $applied = (bool) ($dateFilter['applied'] ?? false);
+    $from = is_string($dateFilter['from'] ?? null) ? trim((string) $dateFilter['from']) : '';
+    $to = is_string($dateFilter['to'] ?? null) ? trim((string) $dateFilter['to']) : '';
+
+    if (!$applied || $from === '' || $to === '') {
+        return pj_dashboard_date_filter_payload();
+    }
+
+    return pj_dashboard_date_filter_payload($from, $to);
+}
+
+function pj_history_sync_requested_range_synced(array $requestedDateFilter, array $syncedDateFilter, string $status): bool
+{
+    if ($status !== 'completed' || ($requestedDateFilter['applied'] ?? false) !== true) {
+        return false;
+    }
+
+    if (($syncedDateFilter['applied'] ?? false) !== true) {
+        return false;
+    }
+
+    $requestedFrom = is_string($requestedDateFilter['from'] ?? null) ? trim((string) $requestedDateFilter['from']) : '';
+    $requestedTo = is_string($requestedDateFilter['to'] ?? null) ? trim((string) $requestedDateFilter['to']) : '';
+    $syncedFrom = is_string($syncedDateFilter['from'] ?? null) ? trim((string) $syncedDateFilter['from']) : '';
+    $syncedTo = is_string($syncedDateFilter['to'] ?? null) ? trim((string) $syncedDateFilter['to']) : '';
+
+    if ($requestedFrom === '' || $requestedTo === '' || $syncedFrom === '' || $syncedTo === '') {
+        return false;
+    }
+
+    return $requestedFrom >= $syncedFrom && $requestedTo <= $syncedTo;
+}
+
+function pj_history_sync_summary_warning(string $status, bool $requestedApplied, bool $requestedRangeSynced): ?string
+{
+    if (!$requestedApplied) {
+        return null;
+    }
+
+    if ($status === 'completed' && $requestedRangeSynced) {
+        return null;
+    }
+
+    if ($status === 'running') {
+        return 'A sincronizacao do historico esta em andamento. A tela mostra apenas o cache local ja salvo.';
+    }
+
+    return 'Esse periodo ainda nao foi sincronizado por completo. A tela mostra apenas o cache local ja salvo.';
+}
+
+function pj_history_sync_dashboard_summary(?array $requestedDateFilter = null): array
+{
+    $summary = pj_history_sync_empty_summary();
+    $state = pj_history_sync_load_state();
+    $requested = is_array($requestedDateFilter) ? $requestedDateFilter : pj_dashboard_date_filter_payload();
+
+    if (!is_array($state)) {
+        $summary['warning'] = pj_history_sync_summary_warning(
+            $summary['status'],
+            ($requested['applied'] ?? false) === true,
+            false
+        );
+
+        return $summary;
+    }
+
+    $status = strtolower(trim((string) ($state['status'] ?? 'idle')));
+    if (!in_array($status, ['running', 'completed', 'error'], true)) {
+        $status = 'idle';
+    }
+
+    $summary['status'] = $status;
+    $summary['updated_at'] = is_string($state['updated_at'] ?? null) && trim((string) $state['updated_at']) !== ''
+        ? trim((string) $state['updated_at'])
+        : null;
+    $summary['date_filter'] = pj_history_sync_summary_date_filter($state['date_filter'] ?? null);
+    $summary['requested_range_synced'] = pj_history_sync_requested_range_synced($requested, $summary['date_filter'], $status);
+    $summary['warning'] = pj_history_sync_summary_warning(
+        $status,
+        ($requested['applied'] ?? false) === true,
+        $summary['requested_range_synced']
+    );
+
+    return $summary;
+}
+
 function pj_history_sync_now(string $timezone): DateTimeImmutable
 {
     $override = $GLOBALS['__PJ_HISTORY_SYNC_NOW'] ?? null;

@@ -28,6 +28,7 @@ function pj_api_dashboard_payload(
     array $dateFilter,
     array $localRows,
     ?array $historyRows = null,
+    ?array $historySync = null,
     ?string $extraWarning = null,
     bool $stale = false
 ): array {
@@ -35,6 +36,9 @@ function pj_api_dashboard_payload(
     $resolvedHistoryRows = $normalizedMode === 'history' && is_array($historyRows)
         ? $historyRows
         : ['rows' => [], 'warning' => null];
+    $resolvedHistorySync = is_array($historySync)
+        ? $historySync
+        : pj_history_sync_dashboard_summary($normalizedMode === 'history' ? $dateFilter : null);
 
     $rows = $normalizedMode === 'history'
         ? pj_merge_dashboard_row_sets(
@@ -46,6 +50,7 @@ function pj_api_dashboard_payload(
     $warning = pj_merge_warnings([
         $localRows['warning'] ?? null,
         $resolvedHistoryRows['warning'] ?? null,
+        $resolvedHistorySync['warning'] ?? null,
         $extraWarning,
     ]);
 
@@ -63,6 +68,7 @@ function pj_api_dashboard_payload(
                 is_string($dateFilter['from'] ?? null) ? (string) $dateFilter['from'] : null,
                 is_string($dateFilter['to'] ?? null) ? (string) $dateFilter['to'] : null
             ),
+            'history_sync' => $resolvedHistorySync,
             'refresh_seconds' => (int) (pj_config()['dashboard']['refresh_seconds'] ?? 60),
             'authenticated' => pj_is_authenticated(),
         ],
@@ -349,12 +355,8 @@ if ($method === 'GET') {
         if ($mode === 'history') {
             $resolvedDateFilter = pj_resolve_dashboard_date_filter($dateFrom, $dateTo);
             $localRows = pj_collect_local_dashboard_rows($resolvedDateFilter);
-            $historyRows = pj_history_sync_preview_rows(
-                (string) $resolvedDateFilter['from'],
-                (string) $resolvedDateFilter['to']
-            );
 
-            return pj_api_dashboard_payload('history', $resolvedDateFilter, $localRows, $historyRows);
+            return pj_api_dashboard_payload('history', $resolvedDateFilter, $localRows);
         }
 
         throw new InvalidArgumentException('Modo de listagem invalido.');
@@ -396,6 +398,7 @@ if ($method === 'GET') {
                         $resolvedDateFilter,
                         $localRows,
                         ['rows' => [], 'warning' => null],
+                        null,
                         $warning,
                         true
                     )
@@ -407,6 +410,7 @@ if ($method === 'GET') {
                     'local',
                     $resolvedDateFilter,
                     $localRows,
+                    null,
                     null,
                     $warning,
                     true
