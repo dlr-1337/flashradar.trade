@@ -39,7 +39,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Starting PriceJust local panel at $url" -ForegroundColor Green
-Write-Host 'Primeiro acesso padrao: admin / change-me' -ForegroundColor Yellow
+Write-Host 'Primeiro acesso padrao: admin / 12345678' -ForegroundColor Yellow
 Write-Host 'Depois do login, altere a senha no app e use a area Usuarios para criar outros logins.' -ForegroundColor DarkYellow
 Write-Host 'Optional: configure api.key in price_data\config.local.php to enable Odds API live odds.' -ForegroundColor DarkYellow
 Write-Host 'Press Ctrl+C to stop the server.' -ForegroundColor Yellow

@@ -174,7 +174,6 @@ if (pj_is_authenticated()) {
             <div id="errorBox" class="error"></div>
             <button type="submit">Entrar</button>
         </form>
-        <p class="hint">Primeiro acesso padrao: <strong>admin</strong> / <strong>change-me</strong>. Depois disso, altere a senha no menu interno e use a area de usuarios para criar outros logins.</p>
     </div>
     <script>
         const form = document.getElementById('loginForm');

@@ -5,7 +5,7 @@ declare(strict_types=1);
 return [
     'auth' => [
         'username' => 'admin',
-        'password_hash' => '$2y$12$4kmOKSDz8KNkcK9XaRGCWO8U2UX56.iwOXcZf5nBGzUBFuQO2j1A2',
+        'password_hash' => '$2y$12$x/ghvHnYm9c0MbDhyQsNBeToZBBCAH/z6ru8qaqDaJSp5rUJRQoT6',
     ],
     'api' => [
         'key' => 'PASTE_ODDS_API_KEY_HERE',

@@ -108,7 +108,7 @@ file_put_contents($jsonFile, "[]\n");
 $configOverride = [
     'auth' => [
         'username' => 'admin',
-        'password_hash' => password_hash('change-me', PASSWORD_DEFAULT),
+        'password_hash' => password_hash('12345678', PASSWORD_DEFAULT),
     ],
     'api' => [
         'key' => '',
@@ -143,7 +143,7 @@ $loginPayload = run_php_json(build_api_code(
     $configOverride,
     'POST',
     'login',
-    ['username' => 'admin', 'password' => 'change-me']
+    ['username' => 'admin', 'password' => '12345678']
 ));
 assert_same(true, $loginPayload['ok'] ?? false, 'Admin login should succeed with the seeded credentials.');
 assert_same('admin', $loginPayload['role'] ?? null, 'Admin login should return role=admin.');

@@ -511,7 +511,7 @@ function pj_seed_admin_user_from_config(): array
     }
 
     if ($passwordHash === '') {
-        $passwordHash = password_hash('change-me', PASSWORD_DEFAULT);
+        $passwordHash = password_hash('12345678', PASSWORD_DEFAULT);
         if (!is_string($passwordHash) || $passwordHash === '') {
             throw new RuntimeException('Unable to seed admin password hash.');
         }

@@ -36,7 +36,7 @@ No primeiro boot, o sistema cria automaticamente o `admin geral` a partir das cr
 Se voce estiver usando a configuracao padrao do projeto, o primeiro acesso e:
 
 - usuario: `admin`
-- senha: `change-me`
+- senha: `12345678`
 
 Depois do primeiro login:
 
