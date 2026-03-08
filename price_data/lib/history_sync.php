@@ -81,6 +81,17 @@ function pj_history_sync_history_start(string $timezone): DateTimeImmutable
     return new DateTimeImmutable('2025-12-01 00:00:00', new DateTimeZone($timezone));
 }
 
+function pj_history_sync_filter_signature(?string $dateFrom, ?string $dateTo): string
+{
+    $from = is_string($dateFrom) ? trim($dateFrom) : '';
+    $to = is_string($dateTo) ? trim($dateTo) : '';
+    if ($from === '' || $to === '') {
+        return '';
+    }
+
+    return sha1($from . '|' . $to);
+}
+
 function pj_history_sync_now(string $timezone): DateTimeImmutable
 {
     $override = $GLOBALS['__PJ_HISTORY_SYNC_NOW'] ?? null;
@@ -309,6 +320,11 @@ function pj_history_sync_dashboard_row_to_json_row(array $row, string $timezone)
         'score_ht' => trim((string) ($row['score_ht'] ?? '')),
         'team' => trim((string) ($row['team'] ?? '')),
         'venue' => $venue === 'Fora' ? 'Fora' : 'Casa',
+        'fixture_id' => $fixtureId > 0 ? $fixtureId : null,
+        'kickoff_at' => ($row['kickoff_at'] ?? null) ?: null,
+        'match_status' => trim((string) ($row['match_status'] ?? 'FT')) ?: 'FT',
+        'bookmaker' => ($row['bookmaker'] ?? null) ?: null,
+        'opponent' => trim((string) ($row['opponent'] ?? '')),
     ];
 }
 
@@ -334,6 +350,57 @@ function pj_history_sync_rows_from_event(array $event, array $oddsEntry, string 
     }
 
     return $rows;
+}
+
+function pj_history_sync_preview_rows(string $dateFrom, string $dateTo): array
+{
+    $timezone = (string) (pj_config()['api']['timezone'] ?? 'America/Sao_Paulo');
+
+    try {
+        if (!pj_has_api_key()) {
+            return [
+                'rows' => [],
+                'warning' => 'Configure api.key em config.local.php para buscar o historico.',
+            ];
+        }
+
+        $bookmakers = pj_odds_api_bookmakers();
+        if ($bookmakers === []) {
+            return [
+                'rows' => [],
+                'warning' => 'Configure api.bookmakers em config.local.php para buscar o historico.',
+            ];
+        }
+
+        $dateFilter = pj_resolve_dashboard_date_filter($dateFrom, $dateTo, $timezone);
+        $windows = pj_history_sync_build_windows($dateFilter['start'], $dateFilter['end']);
+        $leagues = pj_history_sync_fetch_leagues();
+        $tasks = pj_history_sync_build_tasks($leagues, $windows);
+        $rows = [];
+
+        foreach ($tasks as $task) {
+            $events = pj_history_sync_fetch_events_for_task($task);
+            foreach ($events as $event) {
+                $oddsEntry = pj_history_sync_fetch_odds_for_event((int) ($event['id'] ?? 0), $bookmakers);
+                $eventRows = pj_build_rows_from_odds_event($event, $oddsEntry, $timezone);
+                if ($eventRows === []) {
+                    continue;
+                }
+
+                array_push($rows, ...$eventRows);
+            }
+        }
+
+        return [
+            'rows' => pj_filter_dashboard_rows_by_date_filter($rows, $dateFilter),
+            'warning' => null,
+        ];
+    } catch (Throwable $error) {
+        return [
+            'rows' => [],
+            'warning' => pj_format_api_fetch_warning($error, pj_odds_api_bookmakers()),
+        ];
+    }
 }
 
 function pj_history_sync_merge_rows(array $incomingRows, array &$counts): int
@@ -437,7 +504,7 @@ function pj_history_sync_load_state(): ?array
     return is_array($state) ? $state : null;
 }
 
-function pj_history_sync_initialize_state(): array
+function pj_history_sync_initialize_state(?string $dateFrom = null, ?string $dateTo = null): array
 {
     if (!pj_has_api_key()) {
         throw new RuntimeException('Configure api.key em config.local.php para sincronizar o historico.');
@@ -449,9 +516,12 @@ function pj_history_sync_initialize_state(): array
     }
 
     $timezone = (string) (pj_config()['api']['timezone'] ?? 'America/Sao_Paulo');
-    $start = pj_history_sync_history_start($timezone);
-    $end = pj_history_sync_now($timezone);
-    $windows = pj_history_sync_build_windows($start, $end);
+    $dateFilter = pj_resolve_dashboard_date_filter($dateFrom, $dateTo, $timezone);
+    if (($dateFilter['applied'] ?? false) !== true) {
+        throw new InvalidArgumentException('date_from e date_to sao obrigatorios para sincronizar o historico.');
+    }
+
+    $windows = pj_history_sync_build_windows($dateFilter['start'], $dateFilter['end']);
     $leagues = pj_history_sync_fetch_leagues();
     $tasks = pj_history_sync_build_tasks($leagues, $windows);
     $existingRows = pj_history_sync_read_source_rows();
@@ -465,6 +535,8 @@ function pj_history_sync_initialize_state(): array
         'next_task_index' => 0,
         'current_task' => null,
         'pending_events' => [],
+        'date_filter' => pj_dashboard_date_filter_payload($dateFilter['from'], $dateFilter['to']),
+        'filter_signature' => pj_history_sync_filter_signature($dateFilter['from'], $dateFilter['to']),
         'counts' => pj_history_sync_empty_counts(
             pj_history_sync_count_preserved_rows($existingRows),
             count($existingRows)
@@ -488,19 +560,26 @@ function pj_history_sync_payload(array $state, bool $ok): array
         'state' => (string) ($state['status'] ?? 'running'),
         'progress' => is_array($state['progress'] ?? null) ? $state['progress'] : pj_history_sync_build_progress($state),
         'counts' => is_array($state['counts'] ?? null) ? $state['counts'] : pj_history_sync_empty_counts(),
+        'date_filter' => is_array($state['date_filter'] ?? null) ? $state['date_filter'] : pj_dashboard_date_filter_payload(),
         'warning' => $state['warning'] ?? null,
         'message' => $state['message'] ?? null,
     ];
 }
 
-function pj_history_sync_step(bool $reset = false): array
+function pj_history_sync_step(bool $reset = false, ?string $dateFrom = null, ?string $dateTo = null): array
 {
     $state = null;
 
     try {
-        $state = $reset ? pj_history_sync_initialize_state() : pj_history_sync_load_state();
+        $state = $reset ? pj_history_sync_initialize_state($dateFrom, $dateTo) : pj_history_sync_load_state();
         if ($state === null) {
-            $state = pj_history_sync_initialize_state();
+            $state = pj_history_sync_initialize_state($dateFrom, $dateTo);
+        }
+
+        $requestedSignature = pj_history_sync_filter_signature($dateFrom, $dateTo);
+        $stateSignature = trim((string) ($state['filter_signature'] ?? ''));
+        if (!$reset && $requestedSignature !== '' && $stateSignature !== '' && !hash_equals($stateSignature, $requestedSignature)) {
+            throw new RuntimeException('O filtro de datas mudou. Reinicie a sincronizacao do historico.');
         }
 
         if (($state['status'] ?? '') === 'completed') {

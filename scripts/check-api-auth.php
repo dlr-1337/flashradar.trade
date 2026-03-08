@@ -134,6 +134,8 @@ assert_same(false, $sessionPayload['capabilities']['can_manage_users'] ?? null, 
 $listPayload = run_php_json(build_api_code($apiFile, $fileOverrides, $configOverride, 'GET'));
 assert_same(true, $listPayload['ok'] ?? false, 'Listing rows should still work without authentication.');
 assert_true(is_array($listPayload['rows'] ?? null), 'Listing rows should return a rows array.');
+assert_same('local', $listPayload['meta']['mode'] ?? null, 'Default listing should stay in local mode.');
+assert_same(false, $listPayload['meta']['date_filter']['applied'] ?? null, 'Default listing should not apply a date filter.');
 
 $loginPayload = run_php_json(build_api_code(
     $apiFile,

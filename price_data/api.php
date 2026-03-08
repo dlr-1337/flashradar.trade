@@ -216,32 +216,97 @@ if ($method === 'POST' && $action === 'change_password') {
 }
 
 if ($method === 'POST' && $action === 'sync_history') {
-    pj_require_auth_json();
+    pj_require_admin_json();
     $payload = pj_request_body();
     $reset = (bool) ($payload['reset'] ?? false);
-    $response = pj_history_sync_step($reset);
+    $dateFrom = is_string($payload['date_from'] ?? null) ? (string) $payload['date_from'] : null;
+    $dateTo = is_string($payload['date_to'] ?? null) ? (string) $payload['date_to'] : null;
+
+    try {
+        $response = pj_history_sync_step($reset, $dateFrom, $dateTo);
+    } catch (InvalidArgumentException $error) {
+        pj_json_response([
+            'ok' => false,
+            'error' => $error->getMessage(),
+        ], 422);
+    }
+
     pj_json_response($response, ($response['ok'] ?? false) ? 200 : 500);
 }
 
 if ($method === 'GET') {
-    $apiRows = pj_fetch_api_rows();
-    $jsonRows = pj_json_source_rows();
-    $manualRows = pj_manual_rows();
-    $allRows = pj_sort_dashboard_rows(array_merge($apiRows['rows'], $jsonRows['rows'], $manualRows));
-    $warning = pj_merge_warnings([
-        $apiRows['meta']['warning'] ?? null,
-        $jsonRows['warning'] ?? null,
-    ]);
+    $mode = strtolower(trim((string) ($_GET['mode'] ?? 'local')));
+
+    if ($mode === '' || $mode === 'local') {
+        $dateFilter = pj_resolve_dashboard_date_filter();
+        $localRows = pj_collect_local_dashboard_rows($dateFilter);
+        $allRows = pj_sort_dashboard_rows($localRows['rows']);
+
+        pj_json_response([
+            'ok' => true,
+            'rows' => $allRows,
+            'meta' => [
+                'stale' => false,
+                'configured' => pj_has_api_key(),
+                'from_cache' => false,
+                'fetched_at' => null,
+                'warning' => $localRows['warning'] ?? null,
+                'mode' => 'local',
+                'date_filter' => pj_dashboard_date_filter_payload(),
+                'refresh_seconds' => (int) (pj_config()['dashboard']['refresh_seconds'] ?? 60),
+                'authenticated' => pj_is_authenticated(),
+            ],
+        ]);
+    }
+
+    if ($mode === 'history') {
+        try {
+            $dateFilter = pj_resolve_dashboard_date_filter(
+                (string) ($_GET['date_from'] ?? ''),
+                (string) ($_GET['date_to'] ?? '')
+            );
+        } catch (InvalidArgumentException $error) {
+            pj_json_response([
+                'ok' => false,
+                'error' => $error->getMessage(),
+            ], 422);
+        }
+
+        $localRows = pj_collect_local_dashboard_rows($dateFilter);
+        $historyRows = pj_history_sync_preview_rows(
+            (string) $dateFilter['from'],
+            (string) $dateFilter['to']
+        );
+        $allRows = pj_sort_dashboard_rows(pj_merge_dashboard_row_sets($localRows['rows'], $historyRows['rows']));
+        $warning = pj_merge_warnings([
+            $localRows['warning'] ?? null,
+            $historyRows['warning'] ?? null,
+        ]);
+
+        pj_json_response([
+            'ok' => true,
+            'rows' => $allRows,
+            'meta' => [
+                'stale' => false,
+                'configured' => pj_has_api_key(),
+                'from_cache' => false,
+                'fetched_at' => gmdate('c'),
+                'warning' => $warning,
+                'mode' => 'history',
+                'date_filter' => pj_dashboard_date_filter_payload(
+                    (string) $dateFilter['from'],
+                    (string) $dateFilter['to']
+                ),
+                'refresh_seconds' => (int) (pj_config()['dashboard']['refresh_seconds'] ?? 60),
+                'authenticated' => pj_is_authenticated(),
+            ],
+        ]);
+    }
 
     pj_json_response([
-        'ok' => true,
-        'rows' => $allRows,
-        'meta' => array_merge($apiRows['meta'], [
-            'warning' => $warning,
-            'refresh_seconds' => (int) (pj_config()['dashboard']['refresh_seconds'] ?? 60),
-            'authenticated' => pj_is_authenticated(),
-        ]),
-    ]);
+        'ok' => false,
+        'error' => 'Modo de listagem invalido.',
+    ], 422);
 }
 
 pj_require_auth_json();

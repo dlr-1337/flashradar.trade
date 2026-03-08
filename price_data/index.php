@@ -267,6 +267,10 @@ $appConfig = [
             cursor: pointer;
         }
 
+        .filter-date {
+            min-width: 152px;
+        }
+
         .filter-input:focus,
         .filter-select:focus {
             border-color: var(--accent);
@@ -1836,11 +1840,11 @@ $appConfig = [
             <a class="btn-secondary" href="change-password.php">Alterar senha</a>
             <?php if (!empty($appConfig['canManageUsers'])): ?>
                 <a class="btn-secondary" href="admin.php">Usuarios</a>
+                <div class="sync-history-controls">
+                    <button class="btn-secondary" type="button" id="syncHistoryBtn">Sincronizar historico</button>
+                    <span class="sync-status" id="syncHistoryStatus" aria-live="polite"></span>
+                </div>
             <?php endif; ?>
-            <div class="sync-history-controls">
-                <button class="btn-secondary" type="button" id="syncHistoryBtn">Sincronizar historico</button>
-                <span class="sync-status" id="syncHistoryStatus" aria-live="polite"></span>
-            </div>
             <button class="btn-secondary" type="button" onclick="abrirCustomLP()">Custom LP</button>
             <button class="btn-add" type="button" onclick="abrirModal()">
         <span>+</span> Novo
@@ -1853,6 +1857,9 @@ $appConfig = [
 
     <div class="filters-container">
         <div class="filters-bar">
+            <input type="date" id="historyDateFrom" class="filter-select filter-date" />
+            <input type="date" id="historyDateTo" class="filter-select filter-date" />
+            <button type="button" class="btn-secondary" id="historySearchBtn">Buscar</button>
             <input type="text" id="filterSearch" class="filter-input" placeholder="Pesquisar time..." />
 
             <div class="ms league" id="msLeague" data-ms-root="league">
@@ -2175,7 +2182,19 @@ $appConfig = [
             from_cache: false,
             warning: null,
             fetched_at: null,
-            refresh_seconds: APP_CONFIG.refreshSeconds || 60
+            refresh_seconds: APP_CONFIG.refreshSeconds || 60,
+            mode: 'local',
+            date_filter: {
+                applied: false,
+                from: null,
+                to: null
+            }
+        };
+        let IS_LOADING_ESTUDOS = false;
+        const HISTORY_SEARCH_STATE = {
+            applied: false,
+            from: '',
+            to: ''
         };
         let PRICE_LINE_GROUP_STEP = 1;
         let IS_SYNCING_HISTORY = false;
@@ -2339,6 +2358,67 @@ $appConfig = [
 
         function isLogged() {
             return true;
+        }
+
+        function normalizeDateValue(value) {
+            const text = String(value || '').trim();
+            return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
+        }
+
+        function getHistoryInputValues() {
+            return {
+                from: normalizeDateValue(document.getElementById('historyDateFrom')?.value),
+                to: normalizeDateValue(document.getElementById('historyDateTo')?.value)
+            };
+        }
+
+        function setAppliedHistorySearch(from, to) {
+            HISTORY_SEARCH_STATE.applied = true;
+            HISTORY_SEARCH_STATE.from = normalizeDateValue(from);
+            HISTORY_SEARCH_STATE.to = normalizeDateValue(to);
+        }
+
+        function clearAppliedHistorySearch() {
+            HISTORY_SEARCH_STATE.applied = false;
+            HISTORY_SEARCH_STATE.from = '';
+            HISTORY_SEARCH_STATE.to = '';
+        }
+
+        function hasAppliedHistorySearch() {
+            return HISTORY_SEARCH_STATE.applied && HISTORY_SEARCH_STATE.from !== '' && HISTORY_SEARCH_STATE.to !== '';
+        }
+
+        function getCurrentFetchOptions() {
+            if (hasAppliedHistorySearch()) {
+                return {
+                    mode: 'history',
+                    dateFrom: HISTORY_SEARCH_STATE.from,
+                    dateTo: HISTORY_SEARCH_STATE.to
+                };
+            }
+
+            return {
+                mode: 'local'
+            };
+        }
+
+        function buildDashboardUrl(options = getCurrentFetchOptions()) {
+            const url = new URL('api.php', window.location.href);
+            url.searchParams.set('t', String(Date.now()));
+            if (options?.mode === 'history') {
+                url.searchParams.set('mode', 'history');
+                url.searchParams.set('date_from', String(options.dateFrom || ''));
+                url.searchParams.set('date_to', String(options.dateTo || ''));
+            }
+            return url.toString();
+        }
+
+        function setHistorySearchUi(loading = IS_LOADING_ESTUDOS) {
+            const button = document.getElementById('historySearchBtn');
+            if (!button) return;
+            button.disabled = !!loading;
+            button.textContent = loading ? 'Buscando...' : 'Buscar';
+            button.setAttribute('aria-busy', loading ? 'true' : 'false');
         }
 
         function getRowId(j) {
@@ -2675,6 +2755,7 @@ $appConfig = [
 
             const state = String(payload?.state || '').toLowerCase();
             const running = IS_SYNCING_HISTORY || state === 'running';
+            const canSync = hasAppliedHistorySearch() && LAST_API_META?.configured !== false;
             const counts = getSyncHistoryCounts(payload);
             const progress = payload?.progress && typeof payload.progress === 'object' ? payload.progress : {};
             const details = [];
@@ -2682,7 +2763,10 @@ $appConfig = [
 
             statusEl.className = 'sync-status';
 
-            if (running) {
+            if (!canSync && !running) {
+                statusText = 'Busque um periodo antes de sincronizar.';
+                statusEl.classList.add('warning');
+            } else if (running) {
                 statusText = `Historico ${formatSyncProgress(progress)}`;
                 statusEl.classList.add('running');
                 details.push(formatSyncCounts(counts));
@@ -2704,13 +2788,14 @@ $appConfig = [
 
             statusEl.textContent = statusText;
             statusEl.title = details.join(' | ');
-            button.disabled = running;
+            button.disabled = running || !canSync;
             button.textContent = running ? 'Sincronizando...' : 'Sincronizar historico';
             button.setAttribute('aria-busy', running ? 'true' : 'false');
         }
 
         async function syncHistory(reset = true) {
             if (IS_SYNCING_HISTORY) return;
+            if (!(hasAppliedHistorySearch() && LAST_API_META?.configured !== false)) return;
 
             const emptyProgress = {
                 current: 0,
@@ -2740,7 +2825,9 @@ $appConfig = [
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
-                            reset: nextReset
+                            reset: nextReset,
+                            date_from: HISTORY_SEARCH_STATE.from,
+                            date_to: HISTORY_SEARCH_STATE.to
                         })
                     });
                     const payload = await response.json().catch(() => null);
@@ -2762,7 +2849,7 @@ $appConfig = [
                     }
 
                     if (payloadState === 'completed') {
-                        await carregarEstudos();
+                        await carregarEstudos(getCurrentFetchOptions());
                         break;
                     }
 
@@ -2784,24 +2871,52 @@ $appConfig = [
             }
         }
 
+        async function buscarHistorico() {
+            const values = getHistoryInputValues();
+            if (!values.from || !values.to) {
+                alert('Preencha data inicial e data final para buscar.');
+                return;
+            }
+
+            if (values.to < values.from) {
+                alert('A data final deve ser igual ou posterior a data inicial.');
+                return;
+            }
+
+            await carregarEstudos({
+                mode: 'history',
+                dateFrom: values.from,
+                dateTo: values.to
+            });
+        }
+
         function getEmptyStateHtml() {
             const totalRows = Array.isArray(TODOS_DADOS) ? TODOS_DADOS.length : 0;
             const warning = String(LAST_API_META?.warning || '').trim();
             const configured = LAST_API_META?.configured !== false;
+            const historyApplied = hasAppliedHistorySearch() || !!LAST_API_META?.date_filter?.applied;
+            const mode = String(LAST_API_META?.mode || (historyApplied ? 'history' : 'local')).toLowerCase();
 
             let title = 'Nenhum dado encontrado.';
             let description = 'Ajuste os filtros para exibir outros registros.';
 
             if (totalRows === 0) {
                 if (warning) {
-                    title = 'Falha ao carregar dados do painel.';
-                    description = 'Veja o aviso acima. O painel volta a exibir registros quando as fontes locais ou a API estiverem disponiveis.';
+                    title = mode === 'history'
+                        ? 'Falha ao buscar o historico.'
+                        : 'Falha ao carregar dados do painel.';
+                    description = mode === 'history'
+                        ? 'Veja o aviso acima, ajuste o intervalo e clique em Buscar novamente.'
+                        : 'Veja o aviso acima. O painel volta a exibir registros quando as fontes locais estiverem disponiveis.';
+                } else if (mode === 'history' || historyApplied) {
+                    title = 'Nenhum jogo encerrado encontrado.';
+                    description = 'Ajuste a data inicial e final e clique em Buscar novamente.';
                 } else if (!configured) {
-                    title = 'Modo local ativo.';
-                    description = 'Cadastre registros manualmente, mantenha dados.json disponivel ou configure api.key em config.local.php.';
+                    title = 'Nenhum dado local encontrado.';
+                    description = 'Cadastre registros manualmente, mantenha dados.json disponivel ou configure api.key para usar Buscar.';
                 } else {
-                    title = 'Nenhum jogo disponivel agora.';
-                    description = 'Nenhuma fonte retornou partidas para exibir neste momento.';
+                    title = 'Nenhum dado local encontrado.';
+                    description = 'Selecione um intervalo de datas e clique em Buscar para consultar jogos encerrados.';
                 }
             }
 
@@ -4019,13 +4134,17 @@ $appConfig = [
             el.innerHTML = `<b>${Number(n || 0)}</b> jogos`;
         }
 
-        function limparFiltros() {
+        async function limparFiltros() {
             document.getElementById('filterSearch').value = '';
             document.getElementById('filterStatus').value = '';
             document.getElementById('filterVenue').value = '';
             document.getElementById('filterSource').value = '';
+            document.getElementById('historyDateFrom').value = '';
+            document.getElementById('historyDateTo').value = '';
             ACTIVE_FILTERS.league.clear();
             ACTIVE_FILTERS.category.clear();
+            clearAppliedHistorySearch();
+            LAST_SYNC_HISTORY_PAYLOAD = null;
             const ligas = getLeagueOptionsFromData();
             buildMsList('league', ligas);
             buildMsList('category', CATEGORY_OPTIONS);
@@ -4042,6 +4161,10 @@ $appConfig = [
                 updatePlusUi();
                 if (ov.style.display === 'flex') rerenderCurrentPriceLine();
             }
+
+            await carregarEstudos({
+                mode: 'local'
+            });
         }
 
         function filtrarDashboard() {
@@ -4316,13 +4439,31 @@ $appConfig = [
             }
         });
 
-        async function carregarEstudos() {
+        async function carregarEstudos(options = getCurrentFetchOptions()) {
+            if (IS_LOADING_ESTUDOS) return;
+
+            IS_LOADING_ESTUDOS = true;
+            setHistorySearchUi(true);
+
             try {
-                const response = await fetch('api.php?t=' + Date.now());
+                const response = await fetch(buildDashboardUrl(options));
                 const payload = await response.json().catch(() => ({}));
+                if (!response.ok || payload?.ok !== true) {
+                    throw new Error(String(payload?.error || 'Falha ao carregar dados do backend local.'));
+                }
+
                 TODOS_DADOS = Array.isArray(payload?.rows) ? payload.rows : [];
                 LAST_API_META = payload?.meta || LAST_API_META;
                 if (!Array.isArray(TODOS_DADOS)) TODOS_DADOS = [];
+
+                const payloadMode = String(LAST_API_META?.mode || options?.mode || 'local').toLowerCase();
+                const payloadFilter = LAST_API_META?.date_filter || {};
+                if (payloadMode === 'history' && payloadFilter?.applied) {
+                    setAppliedHistorySearch(payloadFilter.from, payloadFilter.to);
+                } else if (payloadMode === 'local') {
+                    clearAppliedHistorySearch();
+                }
+
                 renderApiWarning();
                 const leagueOptions = getLeagueOptionsFromData();
                 buildMsList('league', leagueOptions);
@@ -4336,9 +4477,28 @@ $appConfig = [
                 LAST_API_META = {
                     ...LAST_API_META,
                     stale: true,
-                    warning: 'Falha ao carregar dados do backend local.'
+                    mode: String(options?.mode || 'local'),
+                    date_filter: options?.mode === 'history'
+                        ? {
+                            applied: true,
+                            from: String(options?.dateFrom || ''),
+                            to: String(options?.dateTo || '')
+                        }
+                        : {
+                            applied: false,
+                            from: null,
+                            to: null
+                        },
+                    warning: err instanceof Error && err.message
+                        ? err.message
+                        : 'Falha ao carregar dados do backend local.'
                 };
                 renderApiWarning();
+                filtrarDashboard();
+            } finally {
+                IS_LOADING_ESTUDOS = false;
+                setHistorySearchUi(false);
+                setSyncHistoryUi();
             }
         }
 
@@ -4598,7 +4758,10 @@ $appConfig = [
         }
 
         document.addEventListener("DOMContentLoaded", () => {
-            carregarEstudos();
+            carregarEstudos({
+                mode: 'local'
+            });
+            setHistorySearchUi();
             setSyncHistoryUi();
 
             const lastDate = localStorage.getItem('fpd_last_date');
@@ -4622,7 +4785,14 @@ $appConfig = [
             document.getElementById('filterStatus').addEventListener('change', filtrarDashboard);
             document.getElementById('filterVenue').addEventListener('change', filtrarDashboard);
             document.getElementById('filterSource').addEventListener('change', filtrarDashboard);
-            document.getElementById('syncHistoryBtn').addEventListener('click', () => syncHistory(true));
+            const historySearchBtn = document.getElementById('historySearchBtn');
+            if (historySearchBtn) {
+                historySearchBtn.addEventListener('click', () => buscarHistorico());
+            }
+            const syncHistoryBtn = document.getElementById('syncHistoryBtn');
+            if (syncHistoryBtn) {
+                syncHistoryBtn.addEventListener('click', () => syncHistory(true));
+            }
             const plGroupStep = document.getElementById('plGroupStep');
             const savedPlGroupStep = localStorage.getItem('pj_price_line_group_step');
             PRICE_LINE_GROUP_STEP = sanitizePriceLineGroupStep(savedPlGroupStep || plGroupStep?.value || '1');
@@ -4769,7 +4939,7 @@ $appConfig = [
             });
 
             window.setInterval(() => {
-                carregarEstudos();
+                carregarEstudos(getCurrentFetchOptions());
             }, (APP_CONFIG.refreshSeconds || 60) * 1000);
             window.setInterval(() => {
                 updateRenderedTimers();

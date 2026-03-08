@@ -1156,6 +1156,176 @@ function pj_merge_warnings(array $warnings): ?string
     return implode(' ', array_values(array_unique($normalized)));
 }
 
+function pj_dashboard_date_filter_payload(?string $from = null, ?string $to = null): array
+{
+    $start = is_string($from) ? trim($from) : '';
+    $end = is_string($to) ? trim($to) : '';
+    $applied = $start !== '' && $end !== '';
+
+    return [
+        'applied' => $applied,
+        'from' => $applied ? $start : null,
+        'to' => $applied ? $end : null,
+    ];
+}
+
+function pj_resolve_dashboard_date_filter(?string $from = null, ?string $to = null, ?string $timezone = null): array
+{
+    $resolvedTimezone = $timezone ?: (string) (pj_config()['api']['timezone'] ?? 'America/Sao_Paulo');
+    $start = is_string($from) ? trim($from) : '';
+    $end = is_string($to) ? trim($to) : '';
+
+    if ($start === '' && $end === '') {
+        return [
+            'applied' => false,
+            'from' => null,
+            'to' => null,
+            'start' => null,
+            'end' => null,
+            'timezone' => $resolvedTimezone,
+        ];
+    }
+
+    if ($start === '' || $end === '') {
+        throw new InvalidArgumentException('date_from e date_to sao obrigatorios.');
+    }
+
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $start) !== 1 || preg_match('/^\d{4}-\d{2}-\d{2}$/', $end) !== 1) {
+        throw new InvalidArgumentException('date_from e date_to devem usar o formato YYYY-MM-DD.');
+    }
+
+    $tz = new DateTimeZone($resolvedTimezone);
+    $startDate = new DateTimeImmutable($start . ' 00:00:00', $tz);
+    $endDate = new DateTimeImmutable($end . ' 23:59:59', $tz);
+
+    if ($endDate < $startDate) {
+        throw new InvalidArgumentException('date_to deve ser igual ou posterior a date_from.');
+    }
+
+    return [
+        'applied' => true,
+        'from' => $start,
+        'to' => $end,
+        'start' => $startDate,
+        'end' => $endDate,
+        'timezone' => $resolvedTimezone,
+    ];
+}
+
+function pj_row_matches_date_filter(array $row, array $dateFilter): bool
+{
+    if (($dateFilter['applied'] ?? false) !== true) {
+        return true;
+    }
+
+    $timezone = new DateTimeZone((string) ($dateFilter['timezone'] ?? pj_config()['api']['timezone'] ?? 'America/Sao_Paulo'));
+    $start = $dateFilter['start'] ?? null;
+    $end = $dateFilter['end'] ?? null;
+    if (!$start instanceof DateTimeImmutable || !$end instanceof DateTimeImmutable) {
+        return true;
+    }
+
+    $kickoffAt = trim((string) ($row['kickoff_at'] ?? ''));
+    if ($kickoffAt !== '') {
+        try {
+            $kickoff = (new DateTimeImmutable($kickoffAt))->setTimezone($timezone);
+            return $kickoff >= $start && $kickoff <= $end;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    $dateLabel = trim((string) ($row['date'] ?? ''));
+    if ($dateLabel === '') {
+        return false;
+    }
+
+    if (preg_match('/^\d{4}-\d{2}$/', $dateLabel) === 1) {
+        try {
+            $monthStart = new DateTimeImmutable($dateLabel . '-01 00:00:00', $timezone);
+            $monthEnd = $monthStart->modify('last day of this month')->setTime(23, 59, 59);
+            return $monthEnd >= $start && $monthStart <= $end;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateLabel) === 1) {
+        try {
+            $rowDate = new DateTimeImmutable($dateLabel . ' 12:00:00', $timezone);
+            return $rowDate >= $start && $rowDate <= $end;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    return false;
+}
+
+function pj_filter_dashboard_rows_by_date_filter(array $rows, array $dateFilter): array
+{
+    if (($dateFilter['applied'] ?? false) !== true) {
+        return array_values($rows);
+    }
+
+    $filtered = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        if (pj_row_matches_date_filter($row, $dateFilter)) {
+            $filtered[] = $row;
+        }
+    }
+
+    return array_values($filtered);
+}
+
+function pj_collect_local_dashboard_rows(?array $dateFilter = null): array
+{
+    $resolvedFilter = is_array($dateFilter) ? $dateFilter : pj_resolve_dashboard_date_filter();
+    $jsonRows = pj_json_source_rows();
+    $rows = array_merge($jsonRows['rows'], pj_manual_rows());
+
+    return [
+        'rows' => pj_filter_dashboard_rows_by_date_filter($rows, $resolvedFilter),
+        'warning' => $jsonRows['warning'] ?? null,
+    ];
+}
+
+function pj_dashboard_row_merge_key(array $row): string
+{
+    $fixtureId = (int) ($row['fixture_id'] ?? 0);
+    $venue = trim((string) ($row['venue'] ?? ''));
+    if ($fixtureId > 0 && $venue !== '') {
+        return 'fixture:' . $fixtureId . '|' . strtolower($venue);
+    }
+
+    $rowId = trim((string) ($row['id'] ?? ''));
+    if ($rowId !== '') {
+        return 'id:' . $rowId;
+    }
+
+    return 'hash:' . sha1(json_encode($row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '');
+}
+
+function pj_merge_dashboard_row_sets(array ...$rowSets): array
+{
+    $merged = [];
+    foreach ($rowSets as $rows) {
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $merged[pj_dashboard_row_merge_key($row)] = $row;
+        }
+    }
+
+    return array_values($merged);
+}
+
 function pj_sort_dashboard_rows(array $rows): array
 {
     usort($rows, static function (array $a, array $b): int {
