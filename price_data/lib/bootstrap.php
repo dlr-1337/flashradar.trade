@@ -118,6 +118,82 @@ function pj_json_response(array $payload, int $status = 200): never
     exit;
 }
 
+function pj_collect_output_buffers(int $targetLevel): string
+{
+    $chunks = [];
+    while (ob_get_level() > $targetLevel) {
+        $chunk = ob_get_clean();
+        if (is_string($chunk) && $chunk !== '') {
+            array_unshift($chunks, $chunk);
+        }
+    }
+
+    return implode('', $chunks);
+}
+
+function pj_api_run_guarded(callable $work): array
+{
+    $targetLevel = ob_get_level();
+    ob_start();
+    set_error_handler(static function (int $severity, string $message, string $file = '', int $line = 0): bool {
+        if (!(error_reporting() & $severity)) {
+            return false;
+        }
+
+        throw new ErrorException($message, 0, $severity, $file, $line);
+    });
+
+    $result = [
+        'ok' => false,
+        'payload' => null,
+        'error' => null,
+        'captured_output' => '',
+    ];
+
+    try {
+        $payload = $work();
+        if (!is_array($payload)) {
+            throw new RuntimeException('Guarded API callback must return an array payload.');
+        }
+
+        $result['ok'] = true;
+        $result['payload'] = $payload;
+    } catch (Throwable $error) {
+        $result['error'] = $error;
+    } finally {
+        restore_error_handler();
+        $result['captured_output'] = pj_collect_output_buffers($targetLevel);
+    }
+
+    return $result;
+}
+
+function pj_api_error_log_file(): string
+{
+    return pj_file_override_path('api_error_log', pj_storage_path('cache/api-errors.log'));
+}
+
+function pj_append_api_error_log(array $entry): void
+{
+    $file = pj_api_error_log_file();
+    $dir = dirname($file);
+    if (!is_dir($dir)) {
+        mkdir($dir, 0777, true);
+    }
+
+    $payload = $entry;
+    $payload['timestamp'] = trim((string) ($payload['timestamp'] ?? '')) ?: gmdate('c');
+    $line = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($line === false) {
+        $line = json_encode([
+            'timestamp' => gmdate('c'),
+            'message' => 'Failed to encode API error log entry.',
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+
+    file_put_contents($file, (string) $line . PHP_EOL, FILE_APPEND | LOCK_EX);
+}
+
 function pj_upstream_error_message(array $payload): ?string
 {
     $candidates = [];

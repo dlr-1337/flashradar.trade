@@ -9,8 +9,9 @@ if (-not (Test-Path $php)) {
 $apiFile = Join-Path $repoRoot 'price_data\api.php'
 $authCheckFile = Join-Path $repoRoot 'scripts\check-api-auth.php'
 $historySyncCheckFile = Join-Path $repoRoot 'scripts\check-api-history-sync.php'
+$dashboardGuardCheckFile = Join-Path $repoRoot 'scripts\check-api-dashboard-guard.php'
 
-foreach ($file in @($apiFile, $authCheckFile, $historySyncCheckFile)) {
+foreach ($file in @($apiFile, $authCheckFile, $historySyncCheckFile, $dashboardGuardCheckFile)) {
     & $php -l $file | Out-Host
     if ($LASTEXITCODE -ne 0) {
         Write-Error "PHP lint failed: $file"
@@ -25,6 +26,11 @@ if ($LASTEXITCODE -ne 0) {
 & $php $historySyncCheckFile | Out-Host
 if ($LASTEXITCODE -ne 0) {
     Write-Error 'History sync API smoke check failed.'
+}
+
+& $php $dashboardGuardCheckFile | Out-Host
+if ($LASTEXITCODE -ne 0) {
+    Write-Error 'Dashboard guard API smoke check failed.'
 }
 
 Write-Host 'API CLI smoke checks passed.'

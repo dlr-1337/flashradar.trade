@@ -23,6 +23,92 @@ function pj_api_user_error_status(Throwable $error): int
     return 422;
 }
 
+function pj_api_dashboard_payload(
+    string $mode,
+    array $dateFilter,
+    array $localRows,
+    ?array $historyRows = null,
+    ?string $extraWarning = null,
+    bool $stale = false
+): array {
+    $normalizedMode = strtolower(trim($mode)) === 'history' ? 'history' : 'local';
+    $resolvedHistoryRows = $normalizedMode === 'history' && is_array($historyRows)
+        ? $historyRows
+        : ['rows' => [], 'warning' => null];
+
+    $rows = $normalizedMode === 'history'
+        ? pj_merge_dashboard_row_sets(
+            is_array($localRows['rows'] ?? null) ? $localRows['rows'] : [],
+            is_array($resolvedHistoryRows['rows'] ?? null) ? $resolvedHistoryRows['rows'] : []
+        )
+        : (is_array($localRows['rows'] ?? null) ? $localRows['rows'] : []);
+
+    $warning = pj_merge_warnings([
+        $localRows['warning'] ?? null,
+        $resolvedHistoryRows['warning'] ?? null,
+        $extraWarning,
+    ]);
+
+    return [
+        'ok' => true,
+        'rows' => pj_sort_dashboard_rows($rows),
+        'meta' => [
+            'stale' => $stale,
+            'configured' => pj_has_api_key(),
+            'from_cache' => false,
+            'fetched_at' => $normalizedMode === 'history' ? gmdate('c') : null,
+            'warning' => $warning,
+            'mode' => $normalizedMode,
+            'date_filter' => pj_dashboard_date_filter_payload(
+                is_string($dateFilter['from'] ?? null) ? (string) $dateFilter['from'] : null,
+                is_string($dateFilter['to'] ?? null) ? (string) $dateFilter['to'] : null
+            ),
+            'refresh_seconds' => (int) (pj_config()['dashboard']['refresh_seconds'] ?? 60),
+            'authenticated' => pj_is_authenticated(),
+        ],
+    ];
+}
+
+function pj_api_dashboard_log_issue(array $context, ?Throwable $error = null, string $capturedOutput = ''): void
+{
+    $entry = [
+        'mode' => strtolower(trim((string) ($context['mode'] ?? 'local'))),
+        'uri' => trim((string) ($context['uri'] ?? '')),
+        'date_from' => trim((string) ($context['date_from'] ?? '')),
+        'date_to' => trim((string) ($context['date_to'] ?? '')),
+        'issue' => $error instanceof Throwable ? 'exception' : 'unexpected_output',
+        'message' => $error instanceof Throwable
+            ? trim($error->getMessage())
+            : 'Unexpected output discarded while building dashboard response.',
+        'error_class' => $error instanceof Throwable ? get_class($error) : null,
+        'error_file' => $error instanceof Throwable ? $error->getFile() : null,
+        'error_line' => $error instanceof Throwable ? $error->getLine() : null,
+        'output_prefix' => $capturedOutput !== '' ? substr($capturedOutput, 0, 600) : null,
+    ];
+
+    pj_append_api_error_log(array_filter(
+        $entry,
+        static fn (mixed $value): bool => $value !== null && $value !== ''
+    ));
+}
+
+function pj_api_dashboard_unexpected_error_message(string $mode, Throwable $error): string
+{
+    $prefix = strtolower(trim($mode)) === 'history'
+        ? 'Falha ao buscar historico.'
+        : 'Falha ao carregar dados locais.';
+    $detail = trim($error->getMessage());
+
+    if ($detail === '') {
+        return $prefix . ' Consulte price_data/storage/cache/api-errors.log.';
+    }
+
+    return $prefix
+        . ' Detalhe tecnico: '
+        . $detail
+        . ' Consulte price_data/storage/cache/api-errors.log.';
+}
+
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $action = strtolower(trim((string) ($_GET['action'] ?? '')));
 $currentUser = pj_current_user();
@@ -236,77 +322,108 @@ if ($method === 'POST' && $action === 'sync_history') {
 
 if ($method === 'GET') {
     $mode = strtolower(trim((string) ($_GET['mode'] ?? 'local')));
+    $dateFrom = trim((string) ($_GET['date_from'] ?? ''));
+    $dateTo = trim((string) ($_GET['date_to'] ?? ''));
+    $dashboardContext = [
+        'mode' => $mode,
+        'uri' => (string) ($_SERVER['REQUEST_URI'] ?? ''),
+        'date_from' => $dateFrom,
+        'date_to' => $dateTo,
+    ];
+    $resolvedDateFilter = null;
+    $localRows = null;
 
-    if ($mode === '' || $mode === 'local') {
-        $dateFilter = pj_resolve_dashboard_date_filter();
-        $localRows = pj_collect_local_dashboard_rows($dateFilter);
-        $allRows = pj_sort_dashboard_rows($localRows['rows']);
-
-        pj_json_response([
-            'ok' => true,
-            'rows' => $allRows,
-            'meta' => [
-                'stale' => false,
-                'configured' => pj_has_api_key(),
-                'from_cache' => false,
-                'fetched_at' => null,
-                'warning' => $localRows['warning'] ?? null,
-                'mode' => 'local',
-                'date_filter' => pj_dashboard_date_filter_payload(),
-                'refresh_seconds' => (int) (pj_config()['dashboard']['refresh_seconds'] ?? 60),
-                'authenticated' => pj_is_authenticated(),
-            ],
-        ]);
-    }
-
-    if ($mode === 'history') {
-        try {
-            $dateFilter = pj_resolve_dashboard_date_filter(
-                (string) ($_GET['date_from'] ?? ''),
-                (string) ($_GET['date_to'] ?? '')
-            );
-        } catch (InvalidArgumentException $error) {
-            pj_json_response([
-                'ok' => false,
-                'error' => $error->getMessage(),
-            ], 422);
+    $guard = pj_api_run_guarded(static function () use ($mode, $dateFrom, $dateTo, &$resolvedDateFilter, &$localRows): array {
+        $dashboardExecutorOverride = $GLOBALS['__PJ_API_DASHBOARD_EXECUTOR_OVERRIDE'] ?? null;
+        if (is_callable($dashboardExecutorOverride)) {
+            return $dashboardExecutorOverride($mode, $dateFrom, $dateTo);
         }
 
-        $localRows = pj_collect_local_dashboard_rows($dateFilter);
-        $historyRows = pj_history_sync_preview_rows(
-            (string) $dateFilter['from'],
-            (string) $dateFilter['to']
-        );
-        $allRows = pj_sort_dashboard_rows(pj_merge_dashboard_row_sets($localRows['rows'], $historyRows['rows']));
-        $warning = pj_merge_warnings([
-            $localRows['warning'] ?? null,
-            $historyRows['warning'] ?? null,
-        ]);
+        if ($mode === '' || $mode === 'local') {
+            $resolvedDateFilter = pj_resolve_dashboard_date_filter();
+            $localRows = pj_collect_local_dashboard_rows($resolvedDateFilter);
+
+            return pj_api_dashboard_payload('local', $resolvedDateFilter, $localRows);
+        }
+
+        if ($mode === 'history') {
+            $resolvedDateFilter = pj_resolve_dashboard_date_filter($dateFrom, $dateTo);
+            $localRows = pj_collect_local_dashboard_rows($resolvedDateFilter);
+            $historyRows = pj_history_sync_preview_rows(
+                (string) $resolvedDateFilter['from'],
+                (string) $resolvedDateFilter['to']
+            );
+
+            return pj_api_dashboard_payload('history', $resolvedDateFilter, $localRows, $historyRows);
+        }
+
+        throw new InvalidArgumentException('Modo de listagem invalido.');
+    });
+
+    if ($guard['ok'] === true && is_array($guard['payload'] ?? null)) {
+        $payload = $guard['payload'];
+        $capturedOutput = trim((string) ($guard['captured_output'] ?? ''));
+        if ($capturedOutput !== '') {
+            pj_api_dashboard_log_issue($dashboardContext, null, $capturedOutput);
+            $payload['meta']['stale'] = true;
+            $payload['meta']['warning'] = pj_merge_warnings([
+                $payload['meta']['warning'] ?? null,
+                'Saida inesperada do PHP foi descartada. Consulte price_data/storage/cache/api-errors.log.',
+            ]);
+        }
+
+        pj_json_response($payload);
+    }
+
+    $error = $guard['error'] ?? null;
+    if ($error instanceof InvalidArgumentException) {
+        pj_json_response([
+            'ok' => false,
+            'error' => $error->getMessage(),
+        ], 422);
+    }
+
+    if ($error instanceof Throwable) {
+        $capturedOutput = trim((string) ($guard['captured_output'] ?? ''));
+        pj_api_dashboard_log_issue($dashboardContext, $error, $capturedOutput);
+        $warning = pj_api_dashboard_unexpected_error_message($mode, $error);
+
+        if (is_array($localRows) && is_array($resolvedDateFilter)) {
+            if ($mode === 'history') {
+                pj_json_response(
+                    pj_api_dashboard_payload(
+                        'history',
+                        $resolvedDateFilter,
+                        $localRows,
+                        ['rows' => [], 'warning' => null],
+                        $warning,
+                        true
+                    )
+                );
+            }
+
+            pj_json_response(
+                pj_api_dashboard_payload(
+                    'local',
+                    $resolvedDateFilter,
+                    $localRows,
+                    null,
+                    $warning,
+                    true
+                )
+            );
+        }
 
         pj_json_response([
-            'ok' => true,
-            'rows' => $allRows,
-            'meta' => [
-                'stale' => false,
-                'configured' => pj_has_api_key(),
-                'from_cache' => false,
-                'fetched_at' => gmdate('c'),
-                'warning' => $warning,
-                'mode' => 'history',
-                'date_filter' => pj_dashboard_date_filter_payload(
-                    (string) $dateFilter['from'],
-                    (string) $dateFilter['to']
-                ),
-                'refresh_seconds' => (int) (pj_config()['dashboard']['refresh_seconds'] ?? 60),
-                'authenticated' => pj_is_authenticated(),
-            ],
-        ]);
+            'ok' => false,
+            'error' => $warning,
+        ], 500);
     }
 
     pj_json_response([
         'ok' => false,
-        'error' => 'Modo de listagem invalido.',
-    ], 422);
+        'error' => 'Falha ao carregar dados locais. Consulte price_data/storage/cache/api-errors.log.',
+    ], 500);
 }
 
 pj_require_auth_json();

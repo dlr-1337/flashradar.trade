@@ -2707,17 +2707,21 @@ $appConfig = [
             if (!banner) return;
             const warning = String(LAST_API_META?.warning || '').trim();
             const configured = LAST_API_META?.configured !== false;
+            const mode = String(LAST_API_META?.mode || 'local').toLowerCase();
             if (!warning) {
                 banner.classList.remove('stale');
                 banner.style.display = 'none';
                 banner.textContent = '';
                 return;
             }
+            const stalePrefix = mode === 'history'
+                ? 'Falha ao buscar historico.'
+                : 'Falha ao carregar dados locais.';
             const prefix = !configured
                 ? 'Painel em modo local.'
                 : (LAST_API_META?.from_cache
                     ? 'Usando cache local.'
-                    : (LAST_API_META?.stale ? 'Falha ao carregar dados.' : 'Aviso do painel.'));
+                    : (LAST_API_META?.stale ? stalePrefix : 'Aviso do painel.'));
             banner.textContent = `${prefix} ${warning}`;
             banner.style.display = 'block';
             banner.classList.toggle('stale', configured && !!LAST_API_META?.stale);
@@ -2904,7 +2908,7 @@ $appConfig = [
                 if (warning) {
                     title = mode === 'history'
                         ? 'Falha ao buscar o historico.'
-                        : 'Falha ao carregar dados do painel.';
+                        : 'Falha ao carregar dados locais.';
                     description = mode === 'history'
                         ? 'Veja o aviso acima, ajuste o intervalo e clique em Buscar novamente.'
                         : 'Veja o aviso acima. O painel volta a exibir registros quando as fontes locais estiverem disponiveis.';
@@ -4439,6 +4443,61 @@ $appConfig = [
             }
         });
 
+        async function readApiJsonResponse(response) {
+            const text = await response.text().catch(() => '');
+            let payload = null;
+            if (text.trim() !== '') {
+                try {
+                    payload = JSON.parse(text);
+                } catch (err) {
+                    payload = null;
+                }
+            }
+
+            return {
+                ok: response.ok,
+                status: Number(response.status || 0),
+                contentType: String(response.headers.get('content-type') || ''),
+                payload,
+                text,
+                textPrefix: text.trim().slice(0, 220)
+            };
+        }
+
+        function buildDashboardLoadFailureMessage(result, options = getCurrentFetchOptions()) {
+            const mode = String(options?.mode || 'local').toLowerCase() === 'history' ? 'history' : 'local';
+            const payloadError = result?.payload && typeof result.payload === 'object'
+                ? String(result.payload.error || '').trim()
+                : '';
+            if (payloadError) {
+                return payloadError;
+            }
+
+            const prefix = mode === 'history'
+                ? 'Falha ao buscar historico.'
+                : 'Falha ao carregar dados locais.';
+            const details = [];
+            const status = Number(result?.status || 0);
+            if (status > 0) {
+                details.push(`HTTP ${status}`);
+            }
+
+            const contentType = String(result?.contentType || '').trim();
+            if (contentType !== '' && !contentType.toLowerCase().includes('application/json')) {
+                details.push(`content-type ${contentType}`);
+            }
+
+            if (String(result?.textPrefix || '').trim() !== '') {
+                details.push('Resposta nao-JSON do backend.');
+            }
+
+            const suffix = details.length > 0
+                ? `${details.join(', ')} Consulte price_data/storage/cache/api-errors.log.`
+                : 'Consulte price_data/storage/cache/api-errors.log.';
+
+            return `${prefix} ${suffix}`;
+        }
+
         async function carregarEstudos(options = getCurrentFetchOptions()) {
             if (IS_LOADING_ESTUDOS) return;
 
@@ -4447,9 +4506,10 @@ $appConfig = [
 
             try {
                 const response = await fetch(buildDashboardUrl(options));
-                const payload = await response.json().catch(() => ({}));
-                if (!response.ok || payload?.ok !== true) {
-                    throw new Error(String(payload?.error || 'Falha ao carregar dados do backend local.'));
+                const result = await readApiJsonResponse(response);
+                const payload = result.payload;
+                if (!response.ok || !payload || payload?.ok !== true) {
+                    throw new Error(buildDashboardLoadFailureMessage(result, options));
                 }
 
                 TODOS_DADOS = Array.isArray(payload?.rows) ? payload.rows : [];
@@ -4491,7 +4551,9 @@ $appConfig = [
                         },
                     warning: err instanceof Error && err.message
                         ? err.message
-                        : 'Falha ao carregar dados do backend local.'
+                        : (String(options?.mode || 'local').toLowerCase() === 'history'
+                            ? 'Falha ao buscar historico. Consulte price_data/storage/cache/api-errors.log.'
+                            : 'Falha ao carregar dados locais. Consulte price_data/storage/cache/api-errors.log.')
                 };
                 renderApiWarning();
                 filtrarDashboard();
